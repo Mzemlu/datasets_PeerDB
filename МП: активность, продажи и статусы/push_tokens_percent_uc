@@ -1,0 +1,25 @@
+WITH 
+  all_uc AS (
+    SELECT count(*) AS cnt_uc
+    FROM ddxfitness_prod_v2.pg_user_configs
+  ),
+  push_uc AS (
+    SELECT count(*) AS cnt_push
+    FROM ddxfitness_prod_v2.pg_user_configs uc
+    WHERE
+      (
+        JSONHas(uc.config, 'push_tokens')
+        AND length(JSONExtractString(uc.config,'push_tokens')) > 2
+      )
+      OR
+      (
+        JSONHas(uc.config, 'huawei_push_tokens')
+        AND length(JSONExtractString(uc.config,'huawei_push_tokens')) > 2
+      )
+  )
+SELECT round(
+  100.0 * (SELECT cnt_push FROM push_uc) 
+         / (SELECT cnt_uc FROM all_uc),
+  2
+) AS push_percent
+;
