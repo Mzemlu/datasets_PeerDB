@@ -1,0 +1,20 @@
+Используемые датасеты в дашбордн Отчеты для сотрудников
+
+Filter_day_of_month
+Filter_day/month_year/club (Отчет сотрудников)
+срез клиентов по клубам (отчет для сотрудников)
+
+Выручка день/клуб
+Выручка (клуб за месяц)
+Fitrer_by_clubs
+avg/percentile_clubs_month(отчет для сотрудников)
+inflow_click2 (отчет для сотрудников)
+outflow_click2 (отчет для сотрудников)
+filter_by_day
+filter_by_month
+dashboards_list_click
+dashboards_list_new
+update_inflow_outflow
+dashboards_structure
+filter_by_clubs_click
+
