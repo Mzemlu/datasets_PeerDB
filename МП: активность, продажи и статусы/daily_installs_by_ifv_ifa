@@ -1,0 +1,11 @@
+SELECT
+    toDate(i.InstallDateTime) AS install_date,
+    countDistinct(
+      COALESCE(NULLIF(i.IFV,''), NULLIF(i.IFA,''), i.WindowsAID)
+    ) AS installs
+FROM mobile_db.installations_all_all AS i
+WHERE i.InstallDateTime >= '2024-06-26'
+  AND i.InstallDateTime < now()
+GROUP BY install_date
+ORDER BY install_date
+;
