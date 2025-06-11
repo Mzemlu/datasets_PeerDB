@@ -1,0 +1,1 @@
+SELECT * FROM mobile_db.agg_page_opens_by_usertype;
