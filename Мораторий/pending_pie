@@ -1,0 +1,20 @@
+WITH pie AS (
+  SELECT 
+    cohort,
+    club_id,
+    club_name,
+    current1 + current2 + current3 + current4 + current5 + current6 + current7 + current8 + current9 + current10 + current11 AS total_c,
+    freezed1 + freezed2 + freezed3 + freezed4 + freezed5 + freezed6 + freezed7 + freezed8 + freezed9 + freezed10 + freezed11 AS total_f,
+    ended1 + ended2 + ended3 + ended4 + ended5 + ended6 + ended7 + ended8 + ended9 + ended10 + ended11 AS total_e,
+    auto,
+    "self"
+  FROM ddxfitness_prod_v2.bi_moratorium
+  WHERE cohort + interval '10' day < now()
+    AND club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+)
+
+SELECT cohort, 'Заморозка' AS type, sum(total_f) AS total_f FROM pie GROUP BY 1, 2
+UNION ALL
+SELECT cohort, 'Пролонгация', sum(total_c) FROM pie GROUP BY 1, 2
+UNION ALL
+SELECT cohort, 'Отток', sum(total_e) FROM pie GROUP BY 1, 2;
