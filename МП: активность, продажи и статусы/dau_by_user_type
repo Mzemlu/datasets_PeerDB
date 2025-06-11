@@ -1,0 +1,1 @@
+SELECT * FROM mobile_db.agg_dau_by_usertype;
