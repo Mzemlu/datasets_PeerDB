@@ -1,0 +1,16 @@
+Список используемых датасетов в дашборде Продажа подарочных карт
+
+gift_cards  
+diff_day_closed_gift_card  
+payment_gift_card  
+sale_and_using_gift_card  
+sale_gift_card_pre_group  
+group_transactions  
+filter_cohorts_day  
+conversion_rate_per_day  
+using_card_profivers  
+repeated_buyers_gift_card  
+conversion_active_client  
+avg_chek_per_users_gift_card  
+repeat_purchase  
+life_time_users_gift_card
