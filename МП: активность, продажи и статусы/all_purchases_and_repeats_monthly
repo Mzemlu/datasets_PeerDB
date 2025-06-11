@@ -1,0 +1,25 @@
+SELECT
+    p.month,
+    sum(p.purchase_count) AS total_purchases,
+    count(*) AS total_buyers,
+    countIf(p.purchase_count >= 2) AS repeat_buyers,
+    sumIf(p.purchase_count, p.purchase_count >= 2) AS repeat_purchases
+FROM
+(
+    SELECT
+      toStartOfMonth(e.EventDateTime) AS month,
+      COALESCE(NULLIF(e.GoogleAID,''), NULLIF(e.IFV,'')) AS device_hash,
+      count(*) AS purchase_count
+    FROM mobile_db.events_all e
+    WHERE e.EventName IN ('buy_ticket_success','subscription_pay')
+      AND e.EventDateTime >= '2024-06-01'
+      AND e.EventDateTime <  now()
+    GROUP BY
+      month,
+      device_hash
+) AS p
+GROUP BY
+  p.month
+ORDER BY
+  p.month
+;
