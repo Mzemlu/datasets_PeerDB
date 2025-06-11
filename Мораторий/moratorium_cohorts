@@ -1,0 +1,24 @@
+SELECT * FROM (
+    SELECT
+        cohort,
+        sum(all_subs_due) AS all_subs_due,
+        sum(moratorium) AS moratorium,
+        sum(day1) AS day1,
+        sum(day2) AS day2,
+        sum(day3) AS day3,
+        sum(day4) AS day4,
+        sum(day5) AS day5,
+        sum(day6) AS day6,
+        sum(day7) AS day7,
+        sum(day8) AS day8,
+        sum(day9) AS day9,
+        sum(day10) AS day10,
+        sum(day11) AS day11,
+        sum(churn) AS churn
+    FROM ddxfitness_prod_v2.bi_moratorium
+    WHERE 1=1
+    {% if filter_values('club_name') %}
+      AND club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+    {% endif %}
+    GROUP BY 1
+);
