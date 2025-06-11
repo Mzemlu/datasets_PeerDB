@@ -1,0 +1,10 @@
+Датасеты используемые в борде МП: активность, продажи и статусы (ЧК/БЧК/ПЧК)
+
+dau_by_user_type  
+mau_by_user_type  
+guest_traffic_share_dataset  
+all_purchases_and_repeats  
+all_purchases_and_repeats_monthly  
+push_tokens_percent_uc  
+daily_installs_by_ifv_ifa  
+monthly_page_opens_user_type
