@@ -1,0 +1,7 @@
+SELECT club_name, cohort, 'Автозакрытие' AS type, sum(auto) AS total
+FROM ddxfitness_prod_v2.bi_moratorium
+GROUP BY 1, 2
+UNION ALL
+SELECT club_name, cohort, 'В клубе' AS type, sum(self) AS total_f
+FROM ddxfitness_prod_v2.bi_moratorium
+GROUP BY 1, 2;
