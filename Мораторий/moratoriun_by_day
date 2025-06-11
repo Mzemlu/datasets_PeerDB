@@ -1,0 +1,21 @@
+SELECT cohort, club_id, '1-ый день моратория' AS day, current1 AS current, ended1 AS ended, freezed1 AS freezed FROM ddxfitness_prod_v2.bi_moratorium
+UNION ALL
+SELECT cohort, club_id, '2-ой день моратория', current2, ended2, freezed2 FROM ddxfitness_prod_v2.bi_moratorium
+UNION ALL
+SELECT cohort, club_id, '3-ий день моратория', current3, ended3, freezed3 FROM ddxfitness_prod_v2.bi_moratorium
+UNION ALL
+SELECT cohort, club_id, '4-ый день моратория', current4, ended4, freezed4 FROM ddxfitness_prod_v2.bi_moratorium
+UNION ALL
+SELECT cohort, club_id, '5-ый день моратория', current5, ended5, freezed5 FROM ddxfitness_prod_v2.bi_moratorium
+UNION ALL
+SELECT cohort, club_id, '6-ой день моратория', current6, ended6, freezed6 FROM ddxfitness_prod_v2.bi_moratorium
+UNION ALL
+SELECT cohort, club_id, '7-ой день моратория', current7, ended7, freezed7 FROM ddxfitness_prod_v2.bi_moratorium
+UNION ALL
+SELECT cohort, club_id, '8-ой день моратория', current8, ended8, freezed8 FROM ddxfitness_prod_v2.bi_moratorium
+UNION ALL
+SELECT cohort, club_id, '9-ый день моратория', current9, ended9, freezed9 FROM ddxfitness_prod_v2.bi_moratorium
+UNION ALL
+SELECT cohort, club_id, '10-ый день моратория', current10, ended10, freezed10 FROM ddxfitness_prod_v2.bi_moratorium
+UNION ALL
+SELECT cohort, club_id, '11-ый день моратория', current11, ended11, freezed11 FROM ddxfitness_prod_v2.bi_moratorium;
