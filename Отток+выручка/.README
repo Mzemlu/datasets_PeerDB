@@ -1,0 +1,13 @@
+Используемые датасеты для дашборда Отток+выручка
+
+Причины оттока                      ← из Prod DB ddxfitness_prod  
+dashboards_list_click  
+kps_vs_plan_click  
+turnover_with_types_of_payment_click  
+median_membership_fee_click  
+payment_plans_click_inflow+turnover  
+reasons_of_outflow_click  
+avg_bill_click  
+dashboards_list_new  
+dashboards_structure  
+filter_by_clubs_ottok_vyruchka
