@@ -1,0 +1,58 @@
+WITH
+  -- 1) Зарегистрированные устройства (EventName='registration_confirm')
+  registered_devices AS (
+    SELECT DISTINCT
+      COALESCE(
+        NULLIF(e.GoogleAID,''), 
+        NULLIF(e.IFV,'')
+      ) AS device_hash
+    FROM mobile_db.events_all e
+    WHERE e.EventName = 'registration_confirm'
+      AND e.EventDateTime >= '2024-06-26'
+      AND e.EventDateTime < now()
+  ),
+
+  -- 2) Все активные устройства (генерировали какие-либо события) в том же периоде
+  all_active_devices AS (
+    SELECT DISTINCT
+      COALESCE(
+        NULLIF(e.GoogleAID,''), 
+        NULLIF(e.IFV,'')
+      ) AS device_hash
+    FROM mobile_db.events_all e
+    WHERE e.EventDateTime >= '2024-06-26'
+      AND e.EventDateTime < now()
+  )
+
+-- Финальный SELECT:
+-- Вычисляем:
+--   total_registered: кол-во авторизованных (CTE registered_devices)
+--   total_guests: кол-во гостей (all_active - registered)
+--   pct_guests_among_all: (guests / (registered + guests)) * 100
+SELECT
+  (SELECT count(*) FROM registered_devices) AS total_registered,
+  (SELECT count(*)
+   FROM all_active_devices ad
+   WHERE ad.device_hash NOT IN (
+     SELECT device_hash FROM registered_devices
+   )
+  ) AS total_guests,
+  round(
+    100.0 *
+      (SELECT count(*)
+       FROM all_active_devices ad
+       WHERE ad.device_hash NOT IN (
+         SELECT device_hash FROM registered_devices
+       )
+      )
+    / (
+        (SELECT count(*) FROM registered_devices)
+        + (SELECT count(*) FROM all_active_devices ad
+           WHERE ad.device_hash NOT IN (
+             SELECT device_hash FROM registered_devices
+           )
+         )
+      ),
+    2
+  ) AS pct_guests_among_all
+;
