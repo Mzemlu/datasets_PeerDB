@@ -1,0 +1,2 @@
+SELECT DISTINCT status AS payment_status 
+FROM ddxfitness_prod_v2.pg_user_payment_plans;
