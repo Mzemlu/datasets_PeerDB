@@ -12,7 +12,7 @@ SELECT
     sum(CASE WHEN payment_plan_id IN (135) THEN 1 ELSE 0 END) AS total_sum,
     count(*) AS total 
 FROM user_payment_plans_by_day u
-LEFT JOIN ddxfitness_prod.clubs c ON u.club_id = c.id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON u.club_id = c.id
 WHERE status IN ('PaymentPending', 'Current', 'Freezed', 'NotStarted')
   AND (day_id_day = toLastDayOfMonth(day_id_day) OR day_id_day = today())
 GROUP BY 1,2,3;
