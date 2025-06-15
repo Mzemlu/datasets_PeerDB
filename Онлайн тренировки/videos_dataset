@@ -1,0 +1,95 @@
+-- with empl_list AS ( 
+-- 			              select distinct user_id as user_id from(
+--                               										select user_id 
+--                               										from ddxfitness_prod_v2.pg_user_payment_plans upp 
+--                               										where payment_plan_id in (1,152,208) and status in ('Current', 'PaymentPending', 'Freezed','NotStarted')
+--                               										UNION ALL
+--                               										select user_id  
+--                               										from ddxfitness_prod_v2.pg_employees e2 
+--                               										where is_active=1)
+--                     ),
+-- videos as (
+--           select vp.id as video_progress_id,
+--               		vp.video_id,
+--               		vp.user_id,
+--               		vp.duration,
+--               		vp.stars,
+--               		case when vp.stars=0 then null else vp.stars end as stars_modif,
+--               		vp.difficulty,
+--               		vp.`comment`,
+--               		vp.is_completed,
+--               		vp.created_at,
+--               		v.title as video_name,
+--               		v.type as type_video,
+--               		v.short_description,
+--               		v.duration as video_duration,
+--               		v.is_deleted,
+--               		v.is_free,
+--               		count(*) over (PARTITION by vp.user_id,vp.video_id  order by created_at desc) -1  rn,
+--               		count(*) over (PARTITION by vp.video_id)  qty_views
+--           from ddxfitness_prod_v2.video_progress vp 
+--           left join ddxfitness_prod_v2.pg_videos v on vp.video_id = v.id
+--           where 1=1
+--           and vp.duration >60
+--           )
+
+with 
+videos as (
+          select vp.id as video_progress_id,
+              		vp.video_id,
+              		vp.user_id,
+              		vp.duration,
+              		vp.stars,
+              		case when vp.stars=0 then null else vp.stars end as stars_modif,
+              		vp.difficulty,
+              		vp.`comment`,
+              		vp.is_completed,
+              		vp.updated_at,
+              		vp.if_employee,
+              		vp.discount_name, 
+              		vp.title as video_name,
+              		vp.type as type_video,
+              		vp.duration as video_duration,
+              		vp.is_free is_free,
+              		vp.is_banner_user,
+              		vp.is_tracker_user,
+					        vp.discount_name_main,
+              		count(*) over (PARTITION by vp.user_id,vp.video_id  order by updated_at desc) -1  rn,
+              		count(*) over (PARTITION by vp.video_id)  qty_views,
+              		count(*) over (partition by user_id ) qty_views_by_user
+          from ddxfitness_prod_v2.bi_video_progress_action vp 
+          where 1=1
+          )
+select  video_progress_id,
+              		video_id,
+              		t1.user_id user_id,
+              		duration,
+              		stars,
+              		stars_modif,
+              		difficulty,
+              		`comment`,
+              		is_completed,
+              		updated_at,
+              		video_name,
+              		type_video,
+              		video_duration,
+              		is_free,
+                  	rn,
+              		qty_views, 
+              		qty_views_by_user,
+              		if_employee,
+              		discount_name,
+              		payment_plan,
+              		is_banner_user,
+              		is_tracker_user,
+					        discount_name_main
+from videos t1 
+LEFT JOIN (
+  SELECT user_id, max(payment_plan) payment_plan 
+  FROM ddxfitness_prod_v2.bi_action_users 
+  WHERE payment_type='new' 
+  GROUP BY 1
+) t3
+ON t1.user_id = t3.user_id
+-- where rn > 0
+;
