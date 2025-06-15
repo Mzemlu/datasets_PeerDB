@@ -1,0 +1,124 @@
+with calendar as (
+     select d.day_id_day,
+            s.id as club_id,
+            s.name as club_name
+     from ddxfitness_prod_v2.d_day d,
+          ddxfitness_prod_v2.pg_clubs s
+     where day_id_day <= today()
+),
+ottok as (
+    select 
+        end_date as date_d,
+        club_id,
+        club_name,
+        sum(is_outflow) as outflow
+    from ddxfitness_prod_v2.active_users_by_clubs
+    where is_outflow = 1
+    group by end_date, club_id, club_name
+),
+pritok as (
+    select 
+        start_date as date_d,
+        club_id,
+        club_name,
+        sum(is_inflow) as inflow
+    from ddxfitness_prod_v2.active_users_by_clubs
+    where is_inflow = 1
+    group by start_date, club_id, club_name
+),
+all_table as (
+    select 
+        date_d,
+        club_id,
+        club_name,
+        outflow,
+        0 as inflow
+    from ottok
+
+    union all
+
+    select 
+        date_d,
+        club_id,
+        club_name,
+        0 as outflow,
+        inflow
+    from pritok
+),
+grouping_inflow_outflow as (
+    select 
+        date_d,
+        club_id,
+        club_name,
+        sum(outflow) as outflow,
+        sum(inflow) as inflow
+    from all_table
+    group by date_d, club_id, club_name
+),
+inflow_and_outflow_by_club as (
+    select 
+        club_name, 
+        club_id, 
+        date, 
+        sum(is_inflow) as is_inflow, 
+        sum(is_outflow) as is_outflow 
+    from (
+        select 
+            inflow_club_name as club_name, 
+            inflow_club as club_id,
+            start_date as date, 
+            is_inflow,
+            0 as is_outflow 
+        from ddxfitness_prod_v2.inflow_and_outflow_new
+        where is_inflow = 1
+
+        union all
+
+        select 
+            outflow_club_name, 
+            outflow_club,
+            end_date as date, 
+            0 as is_inflow,
+            is_outflow 
+        from ddxfitness_prod_v2.inflow_and_outflow_new
+        where is_outflow = 1
+    ) 
+    group by 1, 2, 3
+),
+final_table as (
+    select 
+        r.day_id_day,
+        r.club_id,
+        r.club_name,
+        w.outflow,
+        w.inflow,
+        coalesce(sum(w.inflow) over (
+            partition by r.club_id
+            order by r.day_id_day
+        ), 0) - coalesce(sum(w.outflow) over (
+            partition by r.club_id
+            order by r.day_id_day
+        ), 0) as active_subscribers
+    from calendar r
+    left join grouping_inflow_outflow w 
+        on r.day_id_day = w.date_d and r.club_id = w.club_id
+)
+select 
+    t1.day_id_day as day_id_day,
+    dateDiff(DAY, toStartOfMonth(t1.day_id_day), toLastDayOfMonth(t1.day_id_day)) + 1 as qty_days,
+    t1.club_id as club_id,
+    t1.club_name as club_name,
+    t3.is_outflow as outflow,
+    t3.is_inflow as inflow,
+    t1.active_subscribers as active_subscribers,
+    t2.outflow as plan_outflow,
+    t2.inflow as plan_inflow,
+    t2.to as plan_to,
+    t2.avg_bill as plan_avg_bill
+from final_table t1 
+left join ddxfitness_prod_v2.bi_planned_targets_new t2
+    on t1.club_id = t2.club_id 
+    and toStartOfMonth(t1.day_id_day) = toDate(t2.date)
+left join inflow_and_outflow_by_club t3
+    on t1.club_id = t3.club_id 
+    and t1.day_id_day = t3.date;
