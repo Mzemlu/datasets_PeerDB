@@ -1,0 +1,9 @@
+SELECT 
+    to_char(
+        (upp.signed_date AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Moscow',
+        'MON-YYYY'
+    ) AS date_month_for_filter
+FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+WHERE upp.signed_date::date <= current_date
+  AND upp.signed_date::date >= '2022-01-01'
+GROUP BY 1;
