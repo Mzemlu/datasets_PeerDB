@@ -1,0 +1,102 @@
+WITH empl_list AS (
+    SELECT DISTINCT user_id
+    FROM (
+        SELECT user_id
+        FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+        WHERE payment_plan_id IN (1, 152, 208)
+          AND status = 'Current'
+        UNION ALL
+        SELECT user_id
+        FROM ddxfitness_prod_v2.pg_employees e2
+        WHERE is_active = 1
+    )
+),
+
+videos_table AS (
+    SELECT 
+        vp.id AS video_progress_id,
+        vp.video_id,
+        vp.user_id,
+        CASE 
+            WHEN e.user_id IS NULL THEN 'Клиент' 
+            ELSE 'Сотрудник' 
+        END AS if_employee,
+        vp.duration,
+        vp.stars,
+        vp.difficulty,
+        vp.updated_at,
+        v.title AS video_name,
+        v.type AS type_video,
+        v.short_description,
+        v.duration AS video_duration,
+        v.is_deleted,
+        v.is_free,
+        row_number() OVER (
+            PARTITION BY vp.user_id 
+            ORDER BY vp.updated_at DESC
+        ) AS rnk
+    FROM ddxfitness_prod_v2.video_progress vp
+    LEFT JOIN ddxfitness_prod_v2.pg_videos v ON vp.video_id = v.id
+    LEFT JOIN empl_list e ON vp.user_id = e.user_id
+),
+
+active_user AS (
+    SELECT 
+        video_progress_id,
+        video_id,
+        user_id,
+        if_employee,
+        duration,
+        stars,
+        difficulty,
+        updated_at,
+        video_name,
+        type_video,
+        short_description,
+        video_duration,
+        is_deleted,
+        is_free,
+        CASE 
+            WHEN updated_at >= now() - INTERVAL 30 DAY THEN 1 
+        END AS flaq_active_user
+    FROM videos_table
+    WHERE rnk = 1
+      AND if_employee = 'Клиент'
+),
+
+current_online_pp AS (
+    SELECT user_id, id
+    FROM ddxfitness_prod_v2.pg_user_payment_plans
+    WHERE status = 'Current'
+      AND payment_plan_id IN (205, 206)
+),
+
+final AS (
+    SELECT 
+        p.user_id,
+        video_progress_id,
+        video_id,
+        if_employee,
+        duration,
+        stars,
+        difficulty,
+        updated_at,
+        video_name,
+        type_video,
+        short_description,
+        video_duration,
+        is_deleted,
+        is_free,
+        flaq_active_user,
+        u.discount_name
+    FROM current_online_pp p
+    LEFT JOIN active_user v ON p.user_id = v.user_id
+    LEFT JOIN (
+        SELECT user_payment_plan_id, discount_name
+        FROM ddxfitness_prod_v2.bi_action_users
+        WHERE payment_type = 'new'
+    ) u ON p.id = u.user_payment_plan_id
+)
+
+SELECT * 
+FROM final;
