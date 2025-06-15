@@ -1,0 +1,17 @@
+select 'user token not found' as title
+union all
+select 'expired qr'
+union all
+select 'invalid token'
+union all
+select 'user token not found'
+union all
+select 'invalid qr data'
+union all
+select 'invalid prefix'
+union all
+select 'invalid timestamp'
+union all
+select 'missing client_id'
+union all
+select 'Остальное';
