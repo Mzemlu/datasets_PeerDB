@@ -1,0 +1,138 @@
+WITH sale_gift_card AS (
+    SELECT id,
+           nominal,
+           balance,
+           transaction_id,
+           from_user_id,
+           to_user_id,
+           state,
+           created_at,
+           updated_at
+    FROM ddxfitness_prod_v2.pg_gift_cards
+    WHERE toDate(created_at) >= '2024-12-09'
+),
+chk_calculate AS (
+    SELECT user_id, 1 AS flaq_chk
+    FROM (
+        SELECT upp.id AS user_payment_plan_id,
+               upp.user_id,
+               pp.name AS payment_name,
+               toTimezone(upp.signed_date, 'Europe/Moscow') AS signed_date,
+               row_number() OVER (PARTITION BY upp.user_id ORDER BY upp.signed_date DESC) AS rnk
+        FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+        LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+        LEFT JOIN ddxfitness_prod_v2.pg_users ur ON ur.id = upp.user_id
+        LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON upp.payment_plan_id = pp.id
+        WHERE upp.status IN ('Current', 'Freezed', 'NotStarted', 'PaymentPending')
+          AND upp.payment_plan_id NOT IN (1, 14, 23, 88, 94, 103, 110, 111, 115, 119, 152, 160, 161, 163, 200, 201, 208)
+    ) t
+    WHERE rnk = 1
+),
+current_client AS (
+    SELECT user_id,
+           sum(CASE WHEN status IN ('Current', 'Freezed', 'NotStarted', 'PaymentPending') THEN 1 END) AS flaq_client
+    FROM ddxfitness_prod_v2.pg_user_payment_plans
+    GROUP BY user_id
+),
+rnk_ex_client AS (
+    SELECT upp2.user_id,
+           upp2.payment_plan_id,
+           upp2.cancel_reason,
+           upp2.status,
+           row_number() OVER (PARTITION BY upp2.user_id ORDER BY upp2.signed_date DESC) AS rnk
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp2
+    LEFT JOIN current_client t ON upp2.user_id = t.user_id
+    WHERE flaq_client IS NULL AND status IN ('Ended', 'Refunded')
+),
+bchk_calculate AS (
+    SELECT user_id, 1 AS flaq_bchk
+    FROM rnk_ex_client
+    WHERE rnk = 1
+),
+not_subcribe_users AS (
+    SELECT user_id,
+           sum(CASE WHEN status IN ('Current', 'Freezed', 'NotStarted', 'Ended', 'Refunded', 'PaymentPending') THEN 1 END) AS flaq_client
+    FROM ddxfitness_prod_v2.pg_user_payment_plans
+    GROUP BY user_id
+),
+rnk_ex_client_2 AS (
+    SELECT upp2.user_id,
+           upp2.status,
+           toTimezone(upp2.created_at, 'Europe/Moscow') AS created_at,
+           row_number() OVER (PARTITION BY upp2.user_id ORDER BY upp2.created_at DESC) AS rnk,
+           1 AS flaq_pchk
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp2
+    LEFT JOIN not_subcribe_users t ON upp2.user_id = t.user_id
+    WHERE flaq_client IS NULL AND created_at::date >= '2022-12-12' AND upp2.payment_plan_id <> 208
+),
+not_exist_users AS (
+    SELECT u.id AS user_id,
+           NULL AS status,
+           toTimezone(u.created_at, 'Europe/Moscow') AS created_at,
+           0 AS rnk,
+           1 AS flaq_pchk
+    FROM ddxfitness_prod_v2.pg_users u
+    LEFT JOIN (SELECT DISTINCT user_id FROM ddxfitness_prod_v2.pg_user_payment_plans) q ON u.id = q.user_id
+    LEFT JOIN (SELECT DISTINCT user_id AS employee FROM ddxfitness_prod_v2.pg_employees WHERE is_active = 1) r ON u.id = r.employee
+    WHERE q.user_id = 0 AND r.employee IS NULL AND created_at::date >= '2022-12-12'
+),
+pchk_calculate AS (
+    SELECT * FROM rnk_ex_client_2 WHERE rnk = 1
+    UNION ALL
+    SELECT * FROM not_exist_users
+),
+empl_list AS (
+    SELECT user_id, 1 AS flaq_employee
+    FROM (
+        SELECT user_id
+        FROM ddxfitness_prod_v2.pg_user_payment_plans
+        WHERE payment_plan_id IN (1, 152, 208) AND status = 'Current'
+        UNION DISTINCT
+        SELECT user_id
+        FROM ddxfitness_prod_v2.pg_employees
+        WHERE is_active = 1
+    )
+),
+users_age AS (
+    SELECT *,
+           toUInt8(age('year', birthday, today())) AS age,
+           CASE
+               WHEN toUInt8(age('year', birthday, today())) BETWEEN 16 AND 18 THEN '16-18 лет'
+               WHEN toUInt8(age('year', birthday, today())) BETWEEN 19 AND 24 THEN '19-24 года'
+               WHEN toUInt8(age('year', birthday, today())) BETWEEN 25 AND 30 THEN '25-30 лет'
+               WHEN toUInt8(age('year', birthday, today())) BETWEEN 31 AND 35 THEN '31-35 лет'
+               WHEN toUInt8(age('year', birthday, today())) BETWEEN 36 AND 40 THEN '36-40 лет'
+               WHEN toUInt8(age('year', birthday, today())) BETWEEN 41 AND 45 THEN '41-45 лет'
+               WHEN toUInt8(age('year', birthday, today())) BETWEEN 46 AND 55 THEN '46-55 лет'
+               WHEN toUInt8(age('year', birthday, today())) BETWEEN 56 AND 65 THEN '56-65 лет'
+               WHEN toUInt8(age('year', birthday, today())) >= 66 THEN '66 лет и более'
+               ELSE 'not found'
+           END AS age_category
+    FROM (
+        SELECT id, sex,
+               IF(birthday IS NULL, NULL,
+                  IF(toUInt16(birthday) >= 39969, toDate(toUInt16(birthday) - 65536), birthday)) AS birthday
+        FROM ddxfitness_prod_v2.pg_users
+    ) t
+),
+fin AS (
+    SELECT d.id, d.nominal, d.balance, d.transaction_id,
+           d.from_user_id, d.to_user_id, d.state, d.created_at, d.updated_at,
+           chk.flaq_chk, bchk.flaq_bchk, pchk.flaq_pchk, emp.flaq_employee,
+           ag.sex, ag.birthday, ag.age, ag.age_category,
+           CASE
+               WHEN chk.flaq_chk = 1 THEN 'ЧК'
+               WHEN bchk.flaq_bchk = 1 THEN 'БЧК'
+               WHEN pchk.flaq_pchk = 1 THEN 'ПЧК'
+               WHEN emp.flaq_employee = 1 THEN 'Сотрудник'
+           END AS group_users,
+           count(DISTINCT d.from_user_id) OVER () AS users_total
+    FROM sale_gift_card d
+    LEFT JOIN chk_calculate chk ON d.from_user_id = chk.user_id
+    LEFT JOIN bchk_calculate bchk ON d.from_user_id = bchk.user_id
+    LEFT JOIN pchk_calculate pchk ON d.from_user_id = pchk.user_id
+    LEFT JOIN empl_list emp ON d.from_user_id = emp.user_id
+    LEFT JOIN users_age ag ON d.from_user_id = ag.id
+    WHERE from_user_id <> 1
+)
+SELECT * FROM fin WHERE group_users IS NOT NULL;
