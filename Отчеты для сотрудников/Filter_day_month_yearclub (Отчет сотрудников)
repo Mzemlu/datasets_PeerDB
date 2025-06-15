@@ -1,0 +1,10 @@
+SELECT 
+    (signed_date + INTERVAL '3' hour)::date AS date,
+    to_char((upp.signed_date AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Moscow', 'dd') AS date_day_for_filter,
+    to_char((upp.signed_date AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Moscow', 'MON-YYYY') AS date_month_for_filter,
+    cl.name AS club_name
+FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+WHERE upp.signed_date::date <= current_date
+GROUP BY 1, 2, 3, 4
+ORDER BY 1 ASC;
