@@ -1,0 +1,29 @@
+SELECT
+    upper(formatDateTime(start_date, '%b-%Y')) AS date_month_for_filter,
+    inflow_club_name AS club_name,
+    count(*) AS cnt_inflow,
+    /*countIf(first_payment_plan_id = 18) AS inf_1_month,
+    countIf(first_payment_plan_id = 18) / count(*) AS ratio_inf_1_month,
+    countIf(first_payment_plan_id = 49) AS inf_regular,
+    countIf(first_payment_plan_id = 49) / count(*) AS ratio_inf_regular,
+    countIf(first_payment_plan_id = 20) AS light_1_month,
+    countIf(first_payment_plan_id = 20) / count(*) AS ratio_light_1_month,
+    countIf(first_payment_plan_id = 22) AS smart_1_month,
+    countIf(first_payment_plan_id = 22) / count(*) AS ratio_smart_1_month,
+    countIf(first_payment_plan_id NOT IN (18, 49, 20, 22)) AS other,
+    countIf(first_payment_plan_id NOT IN (18, 49, 20, 22)) / count(*) AS ratio_other,*/
+    countIf(first_payment_plan_id IN (18, 241)) AS inf_1_month,
+    countIf(first_payment_plan_id IN (18, 241)) / count(*) AS ratio_inf_1_month,
+    countIf(first_payment_plan_id = 49) AS inf_regular,
+    countIf(first_payment_plan_id = 49) / count(*) AS ratio_inf_regular,
+    countIf(first_payment_plan_id IN (20, 242, 278)) AS light_1_month,
+    countIf(first_payment_plan_id IN (20, 242, 278)) / count(*) AS ratio_light_1_month,
+    countIf(first_payment_plan_id IN (22, 243, 277)) AS smart_1_month,
+    countIf(first_payment_plan_id IN (22, 243, 277)) / count(*) AS ratio_smart_1_month,
+    countIf(first_payment_plan_id NOT IN (18, 49, 20, 22, 241, 242, 243, 277, 278)) AS other,
+    countIf(first_payment_plan_id NOT IN (18, 49, 20, 22, 241, 242, 243, 277, 278)) / count(*) AS ratio_other
+FROM ddxfitness_prod_v2.inflow_and_outflow_new
+WHERE is_inflow = 1
+GROUP BY
+    date_month_for_filter,
+    club_name;
