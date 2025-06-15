@@ -1,0 +1,107 @@
+WITH outflow AS (
+    SELECT 
+        toStartOfMonth(end_date::date) AS date, 
+        count(user_id) AS qty_outflow 
+    FROM ddxfitness_prod_v2.bi_action_users bau 
+    WHERE end_date IS NOT NULL 
+      AND if_employee = 'Клиент' 
+      AND type = 'payment' 
+      AND payment_type = 'new'
+      {% if filter_values('payment_plan') %} 
+      AND payment_plan IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+      {% endif %}
+      {% if filter_values('discount_name_main') %} 
+      AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_banner_user') %} 
+      AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('gate_name') %} 
+      AND gate_name IN ({{ "'" + "', '".join(filter_values('gate_name')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_trial_user') %} 
+      AND is_trial_user IN ({{ "'" + "', '".join(filter_values('is_trial_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_tracker_user') %} 
+      AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+      {% endif %}
+    GROUP BY 1
+),
+
+empl_list AS (
+    SELECT DISTINCT user_id
+    FROM (
+        SELECT user_id
+        FROM ddxfitness_prod_v2.pg_user_payment_plans
+        WHERE payment_plan_id IN (1, 152, 208) AND status = 'Current'
+        UNION DISTINCT
+        SELECT user_id
+        FROM ddxfitness_prod_v2.pg_employees
+        WHERE is_active = 1
+    )
+),
+
+banner_users AS (
+    SELECT
+        max(EventDate) AS last_banner_date,
+        JSONExtractRaw(EventParameters, 'user_id') AS user_id
+    FROM mobile_db.events_all AS ea
+    WHERE EventName LIKE '%banner%' AND EventParameters LIKE '%"banner_id":78%'
+    GROUP BY 2
+),
+
+active_in_prev_month AS (
+    SELECT 
+        date, 
+        sum(qty_active) AS qty_active 
+    FROM (
+        SELECT 
+            toStartOfMonth(day_id_day::date) AS date, 
+            count(uppbd.user_id) AS qty_active 
+        FROM ddxfitness_prod_v2.user_payment_plans_by_day uppbd
+        INNER JOIN (
+            SELECT 
+                user_payment_plan_id, 
+                gate_name, 
+                discount_name_main, 
+                is_banner_user, 
+                is_trial_user 
+            FROM ddxfitness_prod_v2.bi_action_users bau 
+            WHERE payment_type = 'new'
+              AND if_employee = 'Клиент'
+              {% if filter_values('payment_plan') %} 
+              AND payment_plan IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+              {% endif %}
+              {% if filter_values('discount_name_main') %} 
+              AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+              {% endif %}
+              {% if filter_values('is_banner_user') %} 
+              AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+              {% endif %}
+              {% if filter_values('gate_name') %} 
+              AND gate_name IN ({{ "'" + "', '".join(filter_values('gate_name')) + "'" }})
+              {% endif %}
+              {% if filter_values('is_trial_user') %} 
+              AND is_trial_user IN ({{ "'" + "', '".join(filter_values('is_trial_user')) + "'" }})
+              {% endif %}
+              {% if filter_values('is_tracker_user') %} 
+              AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+              {% endif %}
+            GROUP BY 1,2,3,4,5
+        ) bu ON uppbd.id = bu.user_payment_plan_id
+        WHERE payment_plan_id IN (205, 206)
+          AND status IN ('Current', 'PaymentPending')
+          AND day_id_day = toLastDayOfMonth(day_id_day)
+        GROUP BY 1
+    ) agg
+    GROUP BY date
+)
+
+SELECT 
+    t1.date,
+    max(date) OVER () AS max_date,
+    qty_outflow, 
+    qty_active 
+FROM outflow t1 
+LEFT JOIN active_in_prev_month t2
+    ON t1.date = t2.date + INTERVAL '1' month;
