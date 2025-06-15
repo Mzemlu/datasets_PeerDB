@@ -1,0 +1,62 @@
+WITH list_plans AS (
+    SELECT 
+        id, 
+        payment_plan_name,
+        count(*) OVER () AS total_qty 
+    FROM ddxfitness_prod_v2.user_payment_plans_by_day uppbdn 
+    WHERE 1=1
+      AND day_id_day = '2025-03-25'  -- дата изменения цены
+      AND payment_plan_id IN (18, 20, 22)
+      AND status IN ('Current', 'Freezed', 'PaymentPending', 'NotStarted')
+), -- смотрим интересующую выборку
+
+next_plans AS (
+    SELECT 
+        day_id_day, 
+        id, 
+        user_id, 
+        payment_plan_id, 
+        payment_plan_name, 
+        leadInFrame(payment_plan_id) OVER (PARTITION BY id ORDER BY day_id_day) AS next_payment_plan_id,
+        club_name, 
+        status 
+    FROM ddxfitness_prod_v2.user_payment_plans_by_day uppbdn 
+    WHERE 1=1
+      AND day_id_day >= '2025-03-25'
+      AND id IN (SELECT id FROM list_plans)
+), -- смотрим по исторической таблице следующие подписки
+
+final_table AS (
+    SELECT 
+        row_number() OVER (PARTITION BY id ORDER BY day_id_day) AS rn,
+        day_id_day, 
+        id, 
+        user_id, 
+        payment_plan_id, 
+        payment_plan_name, 
+        next_payment_plan_id,
+        club_name, 
+        status  
+    FROM next_plans
+    WHERE (
+        (payment_plan_id = 18 AND next_payment_plan_id = 22) OR  -- Infinity → Smart
+        (payment_plan_id = 18 AND next_payment_plan_id = 20) OR  -- Infinity → Light
+        (payment_plan_id = 22 AND next_payment_plan_id = 18)     -- Smart → Infinity
+    )
+) -- только подписки с даунгрейдом
+
+SELECT 
+    day_id_day, 
+    id, 
+    user_id, 
+    payment_plan_id, 
+    payment_plan_name, 
+    next_payment_plan_id,
+    club_name, 
+    status,
+    t2.total_qty
+FROM final_table t1
+CROSS JOIN (
+    SELECT min(total_qty) AS total_qty 
+    FROM list_plans
+) t2;
