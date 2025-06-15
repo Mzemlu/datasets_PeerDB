@@ -1,0 +1,4 @@
+SELECT 
+    formatDateTime(last_success_time, '%Y-%m-%d %H:%i:%s') AS last_updated
+FROM system.view_refreshes
+WHERE view = 'inflow_and_outflow_new_mv';
