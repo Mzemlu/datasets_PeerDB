@@ -1,55 +1,87 @@
-WITH list_action AS (
-    SELECT upp.id AS id, 
-           upp.user_id AS user_id, 
-           signed_date::date AS signed_date, 
-           status,
-           upp.payment_plan_id AS payment_plan_id 
-    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
-    WHERE upp.status <> 'Deleted' AND status <> 'Created'
-      AND upp.payment_plan_id IN (205, 206)
-),
-all_contracts AS (
-    SELECT 
-        bu.id, 
-        upp.id AS plan_id,
-        upp.status,
-        user, 
-        phone, 
-        user_id, 
-        email, 
-        CASE 
-            WHEN employee_name LIKE '%Online Registration%' THEN 'Online Registration' 
-            ELSE employee_name 
-        END AS employee_name, 
-        department,
-        parseDateTimeBestEffortOrNull(change_date)::date AS change_date, 
-        signed_date, 
-        upp.payment_plan_id AS payment_plan_id,
-        CASE 
-            WHEN upp.payment_plan_id = 206 THEN 199 
-            WHEN upp.payment_plan_id = 205 THEN 299 
-            ELSE 0 
-        END AS amount,
-        CASE 
-            WHEN change_date >= signed_date - INTERVAL '3' DAY 
-                 AND change_date <= signed_date + INTERVAL '3' DAY 
-                 AND amount = 199 THEN 1 
-            WHEN change_date = signed_date THEN 1
-            ELSE 0 
-        END AS is_callcenter,
-        ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY change_date DESC, bu.id DESC) AS rn
-    FROM ddxfitness_prod_v2.bi_ur_from_bitrix bu
-    LEFT JOIN list_action upp ON bu.user_id = CAST(upp.user_id AS String)
-),
-table_for_tests AS (
-    SELECT 
-        date_diff('day', change_date, signed_date) AS diff_days, 
-        * 
-    FROM all_contracts 
-    WHERE payment_plan_id <> 0
-      AND change_date IS NOT NULL 
-      AND change_date <> signed_date
-)
-SELECT * 
-FROM all_contracts 
-WHERE is_callcenter = 1 AND rn = 1;
+--with list_action as 
+--					(select upp.id id, 
+--							upp.user_id user_id, 
+--							upp.signed_date,
+--							trans1.updated_at,
+--							case 
+--							when trans1.updated_at is null then (signed_date + interval '3' hour)::date
+--							when (trans1.updated_at + interval '3' hour)::date > (signed_date + interval '3' day)::date then (signed_date + interval '3' hour)::date
+--							else (trans1.updated_at + interval '3' hour)::date end as signed_date, 
+--							upp.payment_plan_id  payment_plan_id 
+--					from ddxfitness_prod_v2.pg_user_payment_plans upp 
+--					left join 
+--								(select
+--									    id as trans_id,
+--									    user_payment_plan_id,
+--									    created_at,
+--									    updated_at, 
+--										row_number() over (partition by user_payment_plan_id order by id) as rn
+--								from ddxfitness_prod_v2.pg_transactions 
+--								where not is_deleted and status='completed'
+--								) trans1
+--					on upp.id = trans1.user_payment_plan_id and trans1.rn = 1
+--					where
+--					upp.status<>'Deleted' and status<>'Created'
+--					and upp.payment_plan_id in (205,206)
+--					)
+with list_action as 
+					(select upp.id id, 
+							upp.user_id user_id, 
+							signed_date::date as signed_date, 
+							status,
+							upp.payment_plan_id  payment_plan_id 
+					from ddxfitness_prod_v2.pg_user_payment_plans upp
+					where
+					upp.status<>'Deleted' and status<>'Created'
+					and upp.payment_plan_id in (205,206)
+					)
+--	select * from list_action where user_id =1682996
+----;
+,
+all_contracts as (
+					select 
+							bu.id, 
+							upp.id as plan_id,
+							upp.status,
+							user, 
+							phone, 
+							user_id, 
+							email, 
+							case when employee_name like '%Online Registration%' then 'Online Registration' else employee_name end employee_name, 
+							department,
+							parseDateTimeBestEffortOrNull(change_date)::date change_date, 
+							signed_date signed_date, 
+							upp.payment_plan_id payment_plan_id,
+							case when upp.payment_plan_id=206 then 199 
+							when upp.payment_plan_id=205 then 299 
+							else 0 end amount,
+--							case when change_date >signed_date and amount=199 then 1 
+--							when change_date<signed_date and amount=199 then 1
+							CASE WHEN change_date >= signed_date - INTERVAL '3' DAY AND change_date <= signed_date + INTERVAL '3' DAY and amount=199 then 1 
+							when change_date=signed_date then 1
+							else 0 
+							end is_callcenter,
+							row_number() over(partition by user_id order by change_date desc, id desc) rn
+					from bi_ur_from_bitrix bu
+					left join 
+					list_action upp
+					on bu.user_id=cast(upp.user_id as String) 
+					order by 2 desc)
+--					select * from all_contracts where user_id='1682634';
+,
+table_for_tests as (
+					select  
+					--count(*)
+					--*
+					date_diff('day',change_date,signed_date) diff_days, *
+					--user_id, count(*) 
+					from all_contracts 
+					WHERE 1=1
+					and payment_plan_id<>0
+					and change_date is not null
+					and change_date<>signed_date
+					--and user_id ='1462846'
+					--and user = 'Анастасия Морозова'
+					--group by 1
+					order by 1 desc)
+select * from all_contracts where is_callcenter=1 and rn=1;
