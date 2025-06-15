@@ -1,0 +1,128 @@
+WITH empl_list AS (
+    SELECT user_id
+    FROM (
+        SELECT user_id
+        FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+        WHERE payment_plan_id IN (1, 152, 208)
+          AND status IN ('Current', 'PaymentPending', 'Freezed', 'NotStarted')
+        UNION ALL 
+        SELECT user_id
+        FROM ddxfitness_prod_v2.pg_employees e2
+        WHERE is_active = 1
+    )
+    GROUP BY user_id
+),
+status_by_user AS (
+    SELECT *, 
+           row_number() OVER (PARTITION BY id, updated_at::date ORDER BY version_updated_at DESC, version DESC) AS rn
+    FROM (
+        SELECT 
+            id, 
+            user_id, 
+            payment_plan_id, 
+            signed_date, 
+            start_date,
+            end_date, 
+            status, 
+            lagInFrame(status) OVER (PARTITION BY id ORDER BY version_updated_at, version ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_status, 
+            created_at, 
+            toTimezone(updated_at, 'Europe/Moscow') + toIntervalHour(3) AS updated_at, 
+            toTimezone(version_updated_at, 'Europe/Moscow') AS version_updated_at, 
+            version  
+        FROM ddxfitness_prod_v2.user_payment_plans_history upph 
+        WHERE payment_plan_id IN (205, 206)
+    )
+    WHERE status <> prev_status OR prev_status IS NULL
+),
+next_update_status AS (
+    SELECT 
+        id,
+        user_id, 
+        payment_plan_id,
+        updated_at AS updated_at_full,
+        updated_at::date AS updated_at, 
+        status, 
+        rn,
+        leadInFrame(updated_at::date) OVER (
+            PARTITION BY id ORDER BY updated_at 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) - INTERVAL '1' day AS next_date
+    FROM status_by_user
+    WHERE rn = 1
+),
+filtered_next_update_status AS (
+    SELECT 
+        id, 
+        user_id, 
+        payment_plan_id,
+        updated_at, 
+        status, 
+        CASE 
+            WHEN next_date = '2149-06-06'::date AND status = 'Ended' THEN updated_at
+            WHEN next_date = '2149-06-06'::date THEN today() 
+            ELSE next_date 
+        END AS next_date 
+    FROM next_update_status
+),
+dates AS (
+    SELECT day_id_day 
+    FROM ddxfitness_prod_v2.d_day dd 
+    WHERE day_id_day >= '2024-05-27' AND day_id_day <= today()
+),
+add_dates AS (
+    SELECT * 
+    FROM dates t1
+    CROSS JOIN filtered_next_update_status t2
+),
+final AS (
+    SELECT 
+        CASE 
+            WHEN day_id_day >= updated_at AND day_id_day <= next_date THEN 1 
+            ELSE 0 
+        END AS flag,
+        day_id_day, 
+        id, 
+        payment_plan_id,
+        user_id, 
+        updated_at, 
+        status, 
+        next_date
+    FROM add_dates 
+    WHERE (CASE 
+        WHEN day_id_day >= updated_at AND day_id_day <= next_date THEN 1 
+        ELSE 0 
+    END) = 1
+)
+SELECT 
+    day_id_day AS date,
+    upperUTF8(formatDateTime(day_id_day, '%b-%Y')) AS month_year,
+    CASE
+        WHEN (f.payment_plan_id = 208 OR e.user_id IS NOT NULL) THEN 'Сотрудник'
+        WHEN e.user_id IS NULL THEN 'Клиент'
+    END AS if_employee,
+    f.id AS id,
+    f.user_id AS user_id,
+    f.status AS status,
+    bau.payment_plan,
+    CASE 
+        WHEN day_id_day = toLastDayOfMonth(day_id_day) OR day_id_day = today() THEN 1 
+        ELSE 0 
+    END AS last_day_of_month,
+    CASE 
+        WHEN bau.user_payment_plan_id = 0 THEN 'не оплачен' 
+        ELSE 'оплачен' 
+    END AS if_payed,
+    CASE 
+        WHEN bau.discount_name = '' THEN '-' 
+        ELSE bau.discount_name 
+    END AS discount_name
+FROM final f
+LEFT JOIN empl_list e 
+    ON f.user_id = e.user_id
+LEFT JOIN (
+    SELECT user_payment_plan_id, discount_name, payment_plan 
+    FROM ddxfitness_prod_v2.bi_action_users 
+    WHERE payment_type = 'new'
+) bau
+    ON f.id = bau.user_payment_plan_id
+WHERE 1 = 1;
