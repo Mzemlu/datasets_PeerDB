@@ -1,0 +1,44 @@
+WITH extract_json AS (
+    SELECT 
+        DeviceID AS device_id,
+        City AS city,
+        EventDate AS event_date,
+        COALESCE(
+            toInt64OrZero(JSONExtractString(EventParameters, 'user', 'id')),
+            toInt64OrZero(JSONExtractString(EventParameters, 'user_id')),
+            0
+        ) AS user_id,
+        COALESCE(
+            toInt64OrZero(JSONExtractString(EventParameters, 'coach_id')),
+            0
+        ) AS coach_id
+    FROM mobile_db.events_all
+    WHERE EventName = 'send_coach_msg_button'
+),
+main_table AS (
+    SELECT 
+        c.device_id AS device_id,
+        c.city AS city,
+        c.event_date AS event_date,
+        c.user_id AS user_id,
+        u.sex AS sex_user,
+        u2.sex AS sex_coach
+    FROM extract_json c  
+    LEFT JOIN ddxfitness_prod_v2.pg_users u ON c.user_id = u.id
+    LEFT JOIN ddxfitness_prod_v2.pg_positions es ON c.coach_id = es.id
+    LEFT JOIN ddxfitness_prod_v2.pg_employees em ON es.employee_id = em.id
+    LEFT JOIN ddxfitness_prod_v2.pg_users u2 ON em.user_id = u2.id
+),
+fin AS (
+    SELECT 
+        user_id,
+        sex_user,
+        sex_coach,
+        count(*) AS cnt,
+        count(user_id) OVER (PARTITION BY user_id) AS over_cnt
+    FROM main_table
+    GROUP BY user_id, sex_user, sex_coach
+)
+SELECT * 
+FROM fin 
+WHERE sex_coach IS NOT NULL;
