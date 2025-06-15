@@ -1,0 +1,5 @@
+SELECT 
+name as club_name,
+id
+from ddxfitness_prod.clubs
+where open_date<=today()
