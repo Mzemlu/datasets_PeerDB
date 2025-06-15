@@ -1,0 +1,154 @@
+WITH action_users AS (
+    SELECT 
+        transaction_date, 
+        user_id, 
+        payment_type, 
+        payment_plan,
+        payment_plan_id, 
+        signed_date,
+        user_payment_plan_id, 
+        if_employee, 
+        end_date,
+        CASE WHEN discount_name = '' THEN '-' ELSE discount_name END AS discount_name,
+        is_banner_user,
+        is_tracker_user,
+        discount_name_main
+    FROM ddxfitness_prod_v2.bi_action_users
+),
+
+inflow AS (
+    SELECT 
+        start_date,   
+        sum(is_inflow) AS inflow
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new
+    GROUP BY 1
+),
+
+outflow AS (
+    SELECT 
+        end_date, 
+        sum(is_outflow) AS outflow 
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new
+    GROUP BY 1
+),
+
+inflow_action AS (
+    SELECT 
+        transaction_date::date AS date, 
+        sum(CASE WHEN payment_type = 'new' THEN 1 ELSE 0 END) AS total_action,
+        sum(CASE WHEN payment_type = 'new' AND payment_plan = 'Action199' THEN 1 ELSE 0 END) AS action_199
+    FROM action_users c
+    WHERE payment_type = 'new'
+      AND if_employee IN ({{ "'" + "', '".join(filter_values('if_employee')) + "'" }})
+      AND discount_name IN ({{ "'" + "', '".join(filter_values('discount_name')) + "'" }})
+      {% if filter_values('discount_name_main') %} 
+      AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_banner_user') %} 
+      AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_tracker_user') %} 
+      AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+      {% endif %}
+    GROUP BY 1
+),
+
+outflow_action AS (
+    SELECT 
+        end_date::date AS end_date, 
+        sum(CASE WHEN payment_type = 'new' THEN 1 ELSE 0 END) AS outflow_action_total,
+        sum(CASE WHEN payment_type = 'new' AND payment_plan = 'Action199' THEN 1 ELSE 0 END) AS outflow_action_199
+    FROM (
+        SELECT * 
+        FROM action_users 
+        WHERE payment_type = 'new' 
+          AND end_date IS NOT NULL 
+          AND end_date <= now()
+          AND if_employee IN ({{ "'" + "', '".join(filter_values('if_employee')) + "'" }})
+          AND discount_name IN ({{ "'" + "', '".join(filter_values('discount_name')) + "'" }})
+          {% if filter_values('discount_name_main') %} 
+          AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+          {% endif %}
+          {% if filter_values('is_banner_user') %} 
+          AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+          {% endif %}
+          {% if filter_values('is_tracker_user') %} 
+          AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+          {% endif %}
+    ) c
+    GROUP BY 1
+),
+
+list_action AS (
+    SELECT 
+        upp.id, 
+        upp.user_id, 
+        signed_date::date AS signed_date, 
+        status,
+        upp.payment_plan_id
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    WHERE upp.status NOT IN ('Deleted', 'Created')
+      AND upp.payment_plan_id IN (205, 206)
+),
+
+all_contracts AS (
+    SELECT 
+        bu.id, 
+        upp.id AS plan_id,
+        bu.user, 
+        bu.phone, 
+        bu.user_id, 
+        bu.email, 
+        CASE 
+            WHEN employee_name LIKE '%Online Registration%' THEN 'Online Registration' 
+            ELSE employee_name 
+        END AS employee_name, 
+        department,
+        parseDateTimeBestEffortOrNull(change_date)::date AS change_date, 
+        CASE 
+            WHEN signed_date IS NULL THEN '1970-01-01'::date 
+            ELSE signed_date::date 
+        END AS signed_date, 
+        upp.payment_plan_id,
+        CASE 
+            WHEN upp.payment_plan_id = 206 THEN 199 
+            WHEN upp.payment_plan_id = 205 THEN 299 
+            ELSE 0 
+        END AS amount,
+        CASE 
+            WHEN change_date BETWEEN signed_date - INTERVAL '3' DAY AND signed_date + INTERVAL '3' DAY 
+              AND amount = 199 THEN 1 
+            WHEN change_date = signed_date THEN 1 
+            ELSE 0 
+        END AS is_callcenter,
+        row_number() OVER (PARTITION BY bu.user_id ORDER BY change_date DESC, bu.id DESC) AS rn
+    FROM ddxfitness_prod_v2.bi_ur_from_bitrix bu
+    LEFT JOIN list_action upp ON bu.user_id = CAST(upp.user_id AS String)
+),
+
+callcenter_final AS (
+    SELECT 
+        signed_date, 
+        sum(is_callcenter) AS callcenter 
+    FROM all_contracts 
+    WHERE is_callcenter = 1 
+      AND rn = 1 
+      AND signed_date >= '2024-05-27' 
+      AND employee_name <> 'Online Registration'
+    GROUP BY 1
+)
+
+SELECT 
+    date, 
+    total_action, 
+    action_199, 
+    inflow, 
+    outflow_action_199,
+    outflow_action_total,
+    outflow,
+    callcenter
+FROM inflow_action ia
+LEFT JOIN inflow i ON ia.date = i.start_date
+LEFT JOIN outflow_action olm ON i.start_date = olm.end_date
+LEFT JOIN outflow out ON ia.date = out.end_date
+LEFT JOIN callcenter_final cf ON ia.date = cf.signed_date;
