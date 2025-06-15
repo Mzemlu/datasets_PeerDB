@@ -1,0 +1,94 @@
+WITH outflow AS (
+    SELECT 
+        CASE 
+            WHEN upp2.payment_plan_id IN (
+                1, 8, 14, 15, 23, 48, 88, 94, 103, 111, 115, 123, 131, 133, 152, 153, 154, 155, 163,
+                200, 201, 202
+            ) 
+            THEN FALSE
+            ELSE TRUE
+        END AS is_outflow,
+        upp.id AS id0,
+        upp.payment_plan_id AS payment_plan_id0,
+        pp.name AS name0,
+        upp.end_date AS old_end_date,
+        upp2.id AS id1,
+        upp2.payment_plan_id AS payment_plan_id1,
+        pp1.name AS name1,
+        upp2.signed_date AS new_signed_date,
+        upp.status,
+        cl.name AS club_name,
+        CASE 
+            WHEN upp.cancel_date IS NULL THEN upp.end_date 
+            ELSE upp.cancel_date 
+        END AS end_date,
+        upp.user_id,
+        CASE 
+            WHEN upp.cancel_reason IS NULL THEN 'AutoCanceledByDebt' 
+            ELSE upp.cancel_reason 
+        END AS cancel_reason
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+    JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+    JOIN ddxfitness_prod_v2.pg_user_payment_plans upp2 ON upp2.user_id = upp.user_id
+    JOIN ddxfitness_prod_v2.pg_payment_plans pp1 ON pp1.id = upp2.payment_plan_id
+    WHERE upp.status IN ('Refunded', 'Ended')
+      AND upp.payment_plan_id IN (
+          10, 18, 19, 20, 21, 22, 28, 35, 45, 46, 70, 71, 73, 74, 76, 92, 93, 118, 135, 140, 162
+      )
+    ORDER BY 1 DESC
+),
+
+outflow0 AS (
+    SELECT 
+        CASE 
+            WHEN TO_CHAR(end_date, 'dd-mm-YYYY') = TO_CHAR(new_signed_date, 'dd-mm-YYYY') 
+            THEN FALSE 
+            ELSE is_outflow 
+        END AS is_outflow2,
+        *
+    FROM outflow
+    WHERE is_outflow = TRUE
+),
+
+outflow1 AS (
+    SELECT 
+        id0,
+        is_outflow2,
+        name0,
+        cancel_reason,
+        club_name,
+        end_date
+    FROM outflow0
+    WHERE is_outflow = TRUE
+    GROUP BY 1,2,3,4,5,6
+),
+
+outflow2 AS (
+    SELECT *
+    FROM outflow1
+    WHERE id0 NOT IN (
+        SELECT id0
+        FROM outflow1
+        GROUP BY 1
+        HAVING COUNT(id0) > 1
+    )
+)
+
+SELECT 
+    date, 
+    club_name, 
+    cancel_reason, 
+    MIN(total) AS total_by_reason, 
+    MIN(total_by_club) AS total_by_club
+FROM (
+    SELECT 
+        id0 AS payment_plan_id,
+        club_name,
+        (end_date + INTERVAL '3 hour')::date AS date,
+        cancel_reason,
+        COUNT(*) OVER (PARTITION BY club_name, cancel_reason, (end_date + INTERVAL '3 hour')::date) AS total,
+        COUNT(*) OVER (PARTITION BY club_name, (end_date + INTERVAL '3 hour')::date) AS total_by_club
+    FROM outflow2
+) t
+GROUP BY 1,2,3;
