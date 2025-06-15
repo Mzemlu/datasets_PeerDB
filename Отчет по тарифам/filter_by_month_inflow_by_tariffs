@@ -1,0 +1,16 @@
+WITH calendar AS (
+    SELECT
+        upperUTF8(month_year) AS date_month_for_filter,
+        row_number() OVER (ORDER BY year DESC, month DESC) AS rn
+    FROM (
+        SELECT DISTINCT
+            formatDateTime(day_id_day, '%b-%Y') AS month_year,
+            extract(year FROM day_id_day) AS year,
+            extract(month FROM day_id_day) AS month
+        FROM ddxfitness_prod_v2.d_day
+        WHERE day_id_day <= today()
+    )
+)
+SELECT * 
+FROM calendar 
+ORDER BY rn ASC;
