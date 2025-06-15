@@ -1,0 +1,148 @@
+WITH main_table AS (
+    SELECT
+        user_id,
+        inflow_club,
+        start_training_date AS start_date,
+        CASE WHEN end_date IS NULL THEN toDate(now()) ELSE end_date END AS end_date,
+        user_status,
+        leadInFrame(start_date) OVER (PARTITION BY user_id ORDER BY start_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS next_start,
+        leadInFrame(end_date) OVER (PARTITION BY user_id ORDER BY end_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS next_end,
+        row_number() OVER (PARTITION BY user_id ORDER BY start_date) AS rnk
+    FROM
+        ddxfitness_prod_v2.inflow_and_outflow_new iao
+    ORDER BY
+        start_date ASC
+),
+diff_date_and_lifetime AS (
+    SELECT
+        *,
+        CASE WHEN next_start <> '1970-01-01' THEN
+            date_diff('day', end_date, next_start)
+        END AS diff_date_day,
+        CASE WHEN end_date IS NOT NULL THEN
+            date_diff('day', start_date, end_date)
+        END AS life_time
+    FROM
+        main_table
+),
+previous_day AS (
+    SELECT *,
+        lagInFrame(diff_date_day) OVER (PARTITION BY user_id ORDER BY start_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS previous_diff_date
+    FROM diff_date_and_lifetime
+),
+marking_lifetime AS (
+    SELECT *,
+        sum(CASE WHEN previous_diff_date >= 32 THEN 1 ELSE 0 END) OVER (PARTITION BY user_id ORDER BY start_date) AS grp
+    FROM previous_day
+),
+/*Объединяем контракты в рамках одного юзера*/
+grp_agg AS (
+    SELECT
+        cte.user_id,
+        cte.grp,
+        min(cte.start_date) AS start_date,
+        max(cte.end_date) AS end_date,
+        --sum(cte.life_time) as total_life_time,
+        first_value(cte.diff_date_day) AS diff_days_grp
+    FROM
+        marking_lifetime cte
+    GROUP BY
+        cte.user_id, cte.grp
+),
+diff_days_contract AS (
+    SELECT *, leadInFrame(start_date) OVER (PARTITION BY user_id ORDER BY start_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS next_start_new
+    FROM grp_agg
+),
+diff_days_contract_calculation AS (
+    SELECT *, CASE WHEN next_start_new <> '1970-01-01' THEN
+            date_diff('day', end_date, next_start_new)
+        END AS diff_date_day_contracts 
+    FROM diff_days_contract
+),
+month_calculation AS (
+    SELECT
+        *,
+        first_value(toStartOfMonth(start_date)) OVER (PARTITION BY user_id ORDER BY start_date) AS first_cohort_month,
+        --toStartOfMonth(start_date) as cohort_month,
+        IF(modulo(date_diff('day', start_date, end_date), 30.42) / 30.42 <= 0.36,
+            floor(date_diff('day', start_date, end_date) / 30.42),
+            ceil(date_diff('day', start_date, end_date) / 30.42)
+        ) AS total_months_contracts,
+        floor(diff_date_day_contracts / 30.42) AS month_diff_days,
+        row_number() OVER (PARTITION BY user_id ORDER BY grp) AS rnk_grp
+        --count(user_id) over (partition by cohort_month) as cohort_sizes
+    FROM diff_days_contract_calculation
+    --where user_id = 272337
+),
+cum_month_calculation AS (
+    SELECT *,
+        IF(month_diff_days > 0, sum(total_months_contracts + month_diff_days) OVER (PARTITION BY user_id ORDER BY rnk_grp), null) AS cumulative_months
+    FROM month_calculation
+),
+cohort_month_calculation AS (
+    SELECT *,
+        COALESCE(first_cohort_month + INTERVAL lagInFrame(cumulative_months) OVER (PARTITION BY user_id ORDER BY start_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) MONTH, first_cohort_month) AS cohort_month
+    FROM cum_month_calculation
+),
+cohort_sizes AS (
+    SELECT toStartOfMonth(start_date) AS cohort_month, count(*) AS cohort_size FROM cohort_month_calculation GROUP BY toStartOfMonth(start_date)
+),
+months_range AS (
+    SELECT
+        user_id,
+        first_cohort_month,
+        arrayJoin(range(toRelativeMonthNum(start_date) - toRelativeMonthNum(first_cohort_month) + 1, toRelativeMonthNum(now()) - toRelativeMonthNum(first_cohort_month) + 2)) AS month_offset
+    FROM cohort_month_calculation
+),
+month_dates AS (
+    SELECT
+        DISTINCT user_id,
+        first_cohort_month,
+        addMonths(first_cohort_month, month_offset - 1) AS month_date,
+        month_offset
+    FROM months_range
+),
+contracts_data AS (
+    SELECT
+        md.user_id AS user_id,
+        md.first_cohort_month AS first_cohort_month,
+        cz.cohort_size,
+        md.month_date,
+        md.month_offset,
+        mt.start_date,
+        mt.end_date,
+        mt.total_months_contracts,
+        mt.month_diff_days,
+        CASE WHEN mt.rnk_grp = 0 THEN NULL ELSE mt.rnk_grp END AS rnk_grp
+    FROM month_dates md 
+    LEFT JOIN cohort_month_calculation mt ON md.user_id = mt.user_id AND md.month_date = mt.cohort_month
+    LEFT JOIN cohort_sizes cz ON md.first_cohort_month = cz.cohort_month
+),
+flaq_month AS (
+    SELECT *, last_value(total_months_contracts) OVER (PARTITION BY user_id ORDER BY month_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS filled_total_months_contracts,
+           last_value(rnk_grp) OVER (PARTITION BY user_id ORDER BY month_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS filled_rnk_grp
+    FROM contracts_data
+),
+rnk_months AS (
+    SELECT *,
+        row_number() OVER (PARTITION BY user_id, filled_rnk_grp ORDER BY month_offset) AS rnk_months 
+    FROM flaq_month
+),
+final_flaq_calculation AS (
+    SELECT *,
+        CASE WHEN filled_total_months_contracts >= rnk_months THEN 1 END AS final_flaq
+    FROM rnk_months
+),
+group_table_cohort AS (
+    SELECT first_cohort_month, cohort_size, month_offset, sum(final_flaq) AS cnt_users
+    FROM final_flaq_calculation
+    GROUP BY first_cohort_month, cohort_size, month_offset
+    HAVING cohort_size >= 100
+)
+SELECT first_cohort_month,
+       cohort_size,
+       month_offset,
+       CASE WHEN first_cohort_month + INTERVAL month_offset MONTH > toDate(now()) THEN NULL ELSE cnt_users END AS cnt_users 
+FROM group_table_cohort
+ORDER BY month_offset
+--where user_id = 272337
