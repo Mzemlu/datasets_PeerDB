@@ -1,0 +1,39 @@
+SELECT 
+    session_number, 
+    t1.id AS id, 
+    t1.title AS title, 
+    t1.`type` AS type, 
+    t1.is_free AS is_free, 
+    duration, 
+    t1.video_id AS video_id, 
+    user_id, 
+    qty_rows, 
+    if_rewatch, 
+    t1.updated_at AS updated_at, 
+    duration_by_qty_rows, 
+    max_duration, 
+    is_completed, 
+    stars, 
+    difficulty, 
+    `comment`, 
+    max_rewatch, 
+    qty_rewatch_more_1, 
+    user_payment_plan_id, 
+    payment_plan, 
+    start_date, 
+    end_date, 
+    gate_name, 
+    if_employee, 
+    discount_name, 
+    discount_name_main, 
+    is_banner_user, 
+    current_status, 
+    is_trial_user, 
+    is_tracker_user,
+    t3.id AS group_id,
+    t3.title AS group_name
+FROM ddxfitness.bi_video_progress_action t1
+LEFT JOIN ddxfitness_prod_v2.pg_video_groups_videos_lnk t2
+    ON t1.video_id = t2.video_id
+LEFT JOIN ddxfitness_prod_v2.pg_video_groups t3
+    ON t2.group_id = t3.id;
