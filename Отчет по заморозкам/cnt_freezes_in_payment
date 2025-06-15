@@ -1,0 +1,53 @@
+WITH freeze_table AS (
+    SELECT 
+        user_payment_plan_id,
+        sum(days_freeze) AS days_freeze,
+        count(*) AS cnt_freeze
+    FROM (
+        SELECT
+            uf.id,
+            uf.user_payment_plan_id,
+            upperUTF8(formatDateTime(uf.start_date, '%b-%Y')) AS freeze_date_month,
+            toStartOfMonth(uf.start_date) AS freeze_date,
+            c.name AS club_name,
+            pp.name AS payment_plan,
+            upp.payment_plan_id AS pp_id,
+            tp.product_name,
+            p.category,
+            uf.start_date,
+            uf.end_date,
+            dateDiff('day', uf.start_date, uf.end_date) AS days_freeze
+        FROM ddxfitness_prod_v2.pg_user_freezes uf
+        LEFT JOIN ddxfitness_prod_v2.pg_transactions t ON t.id = uf.transaction_id
+        LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = uf.user_payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = upp.club_id
+        LEFT JOIN ddxfitness_prod_v2.pg_transaction_products tp ON tp.transaction_id = t.id
+        LEFT JOIN ddxfitness_prod_v2.pg_products p ON tp.product_id = p.id
+        LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+        WHERE p.category = 'freeze' 
+          AND uf.status NOT IN ('PaymentFailed','PaymentPending') 
+          AND t.status = 'completed'
+    ) t 
+    GROUP BY user_payment_plan_id
+)
+
+SELECT 
+    upp.id AS id,
+    upp.user_id AS user_id,
+    s.id AS club_id,
+    s.name AS club_name,
+    t.user_payment_plan_id,
+    t.days_freeze,
+    t.cnt_freeze,
+    CASE 
+        WHEN days_freeze = 0 THEN 'Не использовали заморозку'
+        WHEN days_freeze > 0 AND days_freeze <= 90 THEN 'Использовали хотя бы раз'
+        WHEN days_freeze > 90 THEN 'Использовали более 3х месяцев'
+    END AS category_days_freeze
+FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+LEFT JOIN ddxfitness_prod_v2.pg_clubs s ON upp.club_id = s.id
+LEFT JOIN freeze_table t ON upp.id = t.user_payment_plan_id
+WHERE payment_plan_id IN (
+        SELECT id FROM ddxfitness_prod_v2.d_inflow_payment_plans
+    )
+  AND status NOT IN ['Ended', 'Created', 'Deleted', 'Refunded'];
