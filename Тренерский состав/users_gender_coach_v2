@@ -1,0 +1,47 @@
+WITH cte AS (
+    SELECT
+        DeviceID AS device_id,
+        City AS city,
+        EventDate AS event_date,
+        COALESCE(
+            toInt64OrZero(JSONExtractString(EventParameters, 'user', 'id')),
+            toInt64OrZero(JSONExtractString(EventParameters, 'user_id')),
+            0
+        ) AS user_id,
+        COALESCE(
+            toInt64OrZero(JSONExtractString(EventParameters, 'coach_id')),
+            0
+        ) AS coach_id
+    FROM mobile_db.events_all
+    WHERE EventName = 'send_coach_msg_button'
+),
+fin AS (
+    SELECT 
+        c.device_id AS device_id,
+        c.city AS city,
+        c.event_date AS event_date,
+        c.user_id AS user_id,
+        u.sex AS sex_user,
+        u2.sex AS sex_coach
+    FROM cte c
+    LEFT JOIN ddxfitness_prod_v2.pg_users u ON c.user_id = u.id
+    LEFT JOIN ddxfitness_prod_v2.pg_positions es ON c.coach_id = es.id
+    LEFT JOIN ddxfitness_prod_v2.pg_employees em ON es.employee_id = em.id
+    LEFT JOIN ddxfitness_prod_v2.pg_users u2 ON em.user_id = u2.id
+),
+fin_2 AS (
+    SELECT 
+        user_id,
+        sex_user,
+        CASE 
+            WHEN COUNT(DISTINCT sex_coach) > 1 THEN 'both'
+            ELSE MAX(sex_coach)
+        END AS coach_gender_preference,
+        COUNT(*) AS message_count
+    FROM fin
+    GROUP BY user_id, sex_user
+)
+SELECT * 
+FROM fin_2
+WHERE coach_gender_preference IS NOT NULL
+--WHERE user_id = 1157428
