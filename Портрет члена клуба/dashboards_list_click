@@ -1,4 +1,4 @@
 SELECT *
-FROM ddxfitness.bi_list_of_dashboards
+FROM ddxfitness_prod_v2.bi_list_of_dashboards
 WHERE number NOT IN (1)
   AND entity <> '-';
