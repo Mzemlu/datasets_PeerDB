@@ -1,0 +1,16 @@
+WITH cte AS (
+    SELECT 
+        g.card_id,
+        min(g.created_at) AS created_using_card,
+        min(s.created_at) AS created_gift_card,
+        CASE 
+            WHEN dateDiff('day', min(s.created_at), min(g.created_at)) = 0 THEN 1 
+            ELSE dateDiff('day', min(s.created_at), min(g.created_at)) 
+        END AS `Кол-во`
+    FROM ddxfitness_prod_v2.pg_gift_card_using g
+    LEFT JOIN ddxfitness_prod_v2.pg_gift_cards s ON g.card_id = s.id
+    WHERE s.state = 'closed'
+    GROUP BY g.card_id
+    ORDER BY g.card_id DESC
+)
+SELECT * FROM cte;
