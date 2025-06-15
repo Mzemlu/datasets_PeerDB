@@ -1,0 +1,32 @@
+SELECT 
+    video_id, 
+    title, 
+    sum(if_rewatch) / count(DISTINCT CASE WHEN if_rewatch >= 1 THEN user_id END) AS avg_rewatch 
+FROM bi_video_progress_action t1
+INNER JOIN (
+    SELECT 
+        user_id, 
+        max(payment_plan) AS payment_plan 
+    FROM (
+        SELECT 
+            user_id, 
+            payment_plan 
+        FROM ddxfitness_prod_v2.bi_action_users 
+        WHERE payment_type = 'new' 
+            {% if filter_values('payment_plan') %} 
+            AND payment_plan IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+            {% endif %}
+            {% if filter_values('discount_name_main') %} 
+            AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+            {% endif %}
+            {% if filter_values('is_banner_user') %} 
+            AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+            {% endif %}
+            {% if filter_values('is_tracker_user') %} 
+            AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+            {% endif %}
+    ) sub
+    GROUP BY user_id
+) t2
+ON t1.user_id = t2.user_id
+GROUP BY video_id, title;
