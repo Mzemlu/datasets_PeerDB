@@ -1,0 +1,41 @@
+/*берем все подарочные карты*/
+WITH sale_gift_card AS (
+    SELECT 
+        s.id,
+        s.nominal,
+        s.balance,
+        s.transaction_id,
+        s.from_user_id,
+        s.to_user_id,
+        s.state,
+        s.created_at,
+        s.updated_at
+    FROM ddxfitness_prod_v2.pg_gift_cards s
+    WHERE toDate(s.created_at) >= '2024-12-09'
+),
+/*берем первую подписку по каждому юзеру из inflow_and_outflow*/
+first_payment_plan AS (
+    SELECT * FROM (
+        SELECT 
+            user_id,
+            name,
+            sex,
+            start_date,
+            coalesce(end_date, toDate('5999-01-01')) AS end_date,
+            row_number() OVER (PARTITION BY user_id ORDER BY start_date ASC) AS rnk
+        FROM ddxfitness.inflow_and_outflow_new iaon 
+        --WHERE user_id = 1046372
+    ) t
+    WHERE rnk = 1
+),
+/*джойним 2 таблицы и отфильтровываем тех у кого дата подписания первой подписки больше даты подарочной карты для этого юзера*/
+fin AS (
+    SELECT *,
+           dateDiff('day', created_at, start_date) AS diff_date
+    FROM sale_gift_card d 
+    LEFT JOIN first_payment_plan n ON d.to_user_id = n.user_id 
+    WHERE n.user_id > 0 AND n.start_date >= created_at
+)
+SELECT 
+    (SELECT count(distinct user_id) FROM fin) 
+    / (SELECT count(distinct to_user_id) FROM ddxfitness_prod_v2.pg_gift_cards) AS conversion_rate;
