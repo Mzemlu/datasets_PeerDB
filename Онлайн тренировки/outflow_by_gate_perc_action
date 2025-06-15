@@ -1,0 +1,60 @@
+SELECT  
+    gate_name, 
+    CASE 
+        WHEN sum_views = 0 THEN 'вообще не смотрели'
+        WHEN sum_views <= 1 THEN 'посмотрели 1 и меньше раз' 
+        ELSE 'посмотрели 2 и более раз' 
+    END AS type,  
+    user_id,
+    count(user_id) OVER (PARTITION BY gate_name) AS qty_total
+FROM (
+    SELECT 
+        cancel_reason, 
+        end_date, 
+        transaction_date, 
+        cancel_date, 
+        CASE 
+            WHEN date_diff(day, transaction_date, cancel_date) <= 30 
+            THEN date_diff(day, transaction_date, cancel_date) 
+            ELSE toInt16(round(date_diff(day, transaction_date, cancel_date) / 30, 0)) 
+        END AS date_diff,
+        if_employee, 
+        user_id, 
+        payment_plan, 
+        gate_name, 
+        is_trial_user,
+        sum_views 
+    FROM ddxfitness_prod_v2.bi_action_users bau 
+    LEFT JOIN (
+        SELECT 
+            user_id, 
+            count(*) AS sum_views 
+        FROM ddxfitness_prod_v2.bi_video_progress_action 
+        GROUP BY user_id
+    ) bvpa 
+    ON bau.user_id = bvpa.user_id 
+    WHERE 1 = 1
+      AND if_employee = 'Клиент'
+      {% if filter_values('payment_plan') %} 
+      AND payment_plan IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+      {% endif %}
+      {% if filter_values('discount_name_main') %} 
+      AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_banner_user') %} 
+      AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_trial_user') %} 
+      AND is_trial_user IN ({{ "'" + "', '".join(filter_values('is_trial_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('gate_name') %} 
+      AND gate_name IN ({{ "'" + "', '".join(filter_values('gate_name')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_tracker_user') %} 
+      AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+      {% endif %}
+      AND end_date IS NOT NULL
+      AND end_date >= '{{from_dttm}}'
+      AND end_date < '{{to_dttm}}'
+      AND payment_type = 'new'
+) sub;
