@@ -1,0 +1,67 @@
+WITH main AS ( 
+    SELECT 
+        cancel_reason, 
+        end_date,  
+        cancel_date, 
+        min(transaction_date) OVER (PARTITION BY user_id, user_payment_plan_id) AS min_transaction_date,
+        max(transaction_date) OVER (PARTITION BY user_id, user_payment_plan_id) AS max_transaction_date,
+        date_diff(day, max_transaction_date, cancel_date) AS days_in_contract, 
+        CASE 
+            WHEN date_diff(day, max_transaction_date, cancel_date) = 40 
+            THEN 40 
+            ELSE modulo(date_diff(day, max_transaction_date, cancel_date), 40) 
+        END AS date_diff,
+        date_diff(day, min_transaction_date, video_date) AS date_diff_view,
+        if_employee, 
+        user_id, 
+        payment_plan, 
+        sum_views,
+        video_date,
+        gate_name
+    FROM ddxfitness_prod_v2.bi_action_users bau
+    INNER JOIN (
+        SELECT 
+            user_id, 
+            min(updated_at)::date AS video_date, 
+            count(*) AS sum_views 
+        FROM ddxfitness_prod_v2.bi_video_progress_action
+        GROUP BY user_id
+    ) bvpa 
+    ON bau.user_id = bvpa.user_id 
+    WHERE 1 = 1
+      -- AND video_date >= '{{from_dttm}}'
+      -- AND video_date < '{{to_dttm}}'
+      AND if_employee = 'Клиент'
+      AND payment_type = 'new'
+      {% if filter_values('discount_name_main') %} 
+      AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_banner_user') %} 
+      AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('gate_name') %} 
+      AND gate_name IN ({{ "'" + "', '".join(filter_values('gate_name')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_trial_user') %} 
+      AND is_trial_user IN ({{ "'" + "', '".join(filter_values('is_trial_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_tracker_user') %} 
+      AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+      {% endif %}
+)
+
+SELECT 
+    cancel_reason, 
+    date_diff, 
+    days_in_contract,
+    date_diff_view,
+    if_employee, 
+    user_id, 
+    payment_plan, 
+    sum_views,
+    video_date,
+    gate_name
+FROM main
+GROUP BY 
+    cancel_reason, date_diff, days_in_contract, date_diff_view,
+    if_employee, user_id, payment_plan, sum_views, video_date, gate_name;
