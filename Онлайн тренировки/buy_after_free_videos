@@ -1,0 +1,64 @@
+WITH online_users AS (
+    SELECT 
+        transaction_date, 
+        transaction_id, 		
+        user_id, 
+        if_employee, 
+        payment_plan_id, 
+        payment_plan, 
+        user_payment_plan_id, 
+        sex,
+        discount_name,
+        is_banner_user,
+        is_tracker_user,
+        discount_name_main
+    FROM ddxfitness_prod_v2.bi_action_users bau 
+    WHERE payment_type = 'new'
+),
+
+videos AS (
+    SELECT 
+        vp.id AS video_progress_id,
+        vp.video_id,
+        vp.user_id,
+        vp.duration,
+        vp.stars,
+        vp.difficulty,
+        vp.created_at,
+        v.title AS video_name,
+        v.type AS type_video,
+        v.short_description,
+        v.duration AS video_duration,
+        v.is_deleted,
+        v.is_free,
+        row_number() OVER (PARTITION BY vp.user_id ORDER BY vp.created_at ASC) AS rn
+    FROM ddxfitness_prod_v2.video_progress vp 
+    LEFT JOIN ddxfitness_prod_v2.pg_videos v ON vp.video_id = v.id
+    WHERE is_free = 1 
+      AND is_deleted = 0 
+      AND duration > 60
+)
+
+SELECT 
+    transaction_date,
+    t1.discount_name,
+    transaction_id, 
+    t1.user_id, 
+    t1.if_employee, 
+    t1.payment_plan_id, 
+    t1.payment_plan, 
+    t1.user_payment_plan_id, 
+    t1.is_banner_user,
+    t1.is_tracker_user,
+    t1.discount_name_main,
+    t1.sex,
+    t2.video_progress_id,
+    t2.created_at,
+    CASE 
+        WHEN t1.transaction_date > t2.created_at THEN 1 
+        ELSE 0 
+    END AS buy_flag,
+    date_diff('day', t2.created_at, t1.transaction_date) AS diff_days
+FROM online_users t1
+LEFT JOIN videos t2
+    ON t1.user_id = t2.user_id AND rn = 1;
