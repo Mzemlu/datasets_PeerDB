@@ -1,0 +1,9 @@
+select 'СТУДЕНЧЕСКИЙ 1000р' discount_name_main
+UNION ALL
+select  'ТрейдИн 1000р'
+UNION ALL
+select  'Трейд-ин 0 руб'
+UNION ALL
+select  'День рождения' 
+UNION ALL
+select  '-' 
