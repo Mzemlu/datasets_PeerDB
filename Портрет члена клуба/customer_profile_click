@@ -15,7 +15,7 @@ WITH users_birthday_click AS (
                CASE 
                    WHEN birthday IS NOT NULL THEN CAST((CAST(birthday AS Int32) - 65536) AS Date32) 
                END AS birthday_click
-        FROM ddxfitness_prod.users
+        FROM ddxfitness_prod_v2.pg_users
     ) t
 ),
 users_list AS (
@@ -72,9 +72,11 @@ SELECT
         WHEN ul.sport_experience = 'Больше 5 лет' THEN 7
         ELSE 100
     END AS sport_experience_sort
-FROM ddxfitness_prod.user_payment_plans upp
-JOIN ddxfitness_prod.clubs cl ON cl.id = upp.club_id
+FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
 JOIN users_list ul ON ul.user_id = upp.user_id
-WHERE upp.payment_plan_id IN (SELECT id FROM d_inflow_payment_plans)
+WHERE upp.payment_plan_id IN (
+    SELECT id FROM ddxfitness_prod_v2.d_inflow_payment_plans
+)
   AND coalesce(cancel_reason, '') <> 'ExcludeFromReport'
   AND upp.status IN ('Current', 'Freezed', 'NotStarted', 'PaymentPending');
