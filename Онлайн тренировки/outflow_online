@@ -1,0 +1,59 @@
+WITH list_outflow AS (
+    SELECT 
+        end_date AS date, 
+        sum(is_outflow) AS outflow  
+    FROM ddxfitness_prod_v2.inflow_and_outflow iao 
+    WHERE end_date >= '2024-05-27' 
+    GROUP BY 1
+),
+
+empl_list AS (
+    SELECT DISTINCT user_id 
+    FROM (
+        SELECT user_id 
+        FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+        WHERE payment_plan_id IN (1,152,208) 
+          AND status IN ('Current', 'PaymentPending', 'Freezed','NotStarted')
+        UNION ALL
+        SELECT user_id  
+        FROM ddxfitness_prod_v2.pg_employees e2 
+        WHERE is_active = 1
+    )
+),
+
+online_list AS (
+    SELECT 
+        id, 
+        user_id,
+        end_date, 
+        CASE 
+            WHEN upp.payment_plan_id = 208 OR e.user_id IS NOT NULL THEN 'Сотрудник'
+            WHEN e.user_id IS NULL THEN 'Клиент' 
+        END AS if_employee 
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+    LEFT JOIN empl_list e ON upp.user_id = e.user_id
+    WHERE payment_plan_id IN (205, 206, 208) 
+      AND status NOT IN ('Created', 'Deleted')
+    GROUP BY 1, 2, 3, 4
+),
+
+online_list_modif AS (
+    SELECT 
+        CASE 
+            WHEN end_date IS NULL THEN '2019-01-01'::date 
+            ELSE end_date::date 
+        END AS end_date, 
+        count(id) AS qty_active_outflow 
+    FROM online_list
+    WHERE 1 = 1
+      AND if_employee IN ({{ "'" + "', '".join(filter_values('if_employee')) + "'" }})
+    GROUP BY 1
+)
+
+SELECT 
+    coalesce(date, end_date) AS date, 
+    outflow, 
+    qty_active_outflow 
+FROM list_outflow t1
+FULL JOIN online_list_modif t2 ON t1.date = t2.end_date
+ORDER BY date;
