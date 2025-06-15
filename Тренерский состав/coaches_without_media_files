@@ -1,0 +1,8 @@
+SELECT COUNT(DISTINCT p.employee_id) AS group_without_media
+FROM ddxfitness_prod_v2.pg_positions p
+LEFT JOIN ddxfitness_prod_v2.pg_coach_media cm 
+       ON p.employee_id = cm.employee_id
+      AND cm.is_deleted = false
+WHERE p.name = 'Тренер'
+  AND p.is_deleted = false
+  AND cm.employee_id IS NULL;
