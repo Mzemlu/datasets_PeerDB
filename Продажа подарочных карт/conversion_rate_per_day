@@ -1,0 +1,49 @@
+/* смотрим дату использования по каждой карте (которую начали использовать) */
+WITH using_card AS (
+  SELECT
+    g.card_id,
+    min(toDate(g.created_at)) AS created_using_card
+  FROM ddxfitness_prod_v2.pg_gift_card_using g
+  LEFT JOIN ddxfitness_prod_v2.pg_gift_cards s ON g.card_id = s.id
+  WHERE state = 'closed'
+  GROUP BY g.card_id
+),
+/* добавляем дату покупки карты. Джойним все купленные карты с использованными картами и с транзакциями */
+main_table AS (
+  SELECT 
+    s.id, 
+    s.transaction_id, 
+    d.*, 
+    toDate(t.created_at) AS created_sales_card 
+  FROM ddxfitness_prod_v2.pg_gift_cards s
+  LEFT JOIN using_card d ON s.id = d.card_id
+  LEFT JOIN ddxfitness_prod_v2.pg_transactions t ON s.transaction_id = t.id
+)
+
+/* считаем конверсию по каждому дню, за который есть информация */
+SELECT 
+  created_sales_card AS cohort_date,
+  count(*) AS purchased,
+  countIf(
+    created_using_card BETWEEN created_sales_card AND addDays(
+      created_sales_card, 
+      {% if filter_values('window_days') %}
+        {{ filter_values('window_days')[0] }}
+      {% else %}
+        7
+      {% endif %}
+    )
+  ) AS usage_7d,
+  countIf(
+    created_using_card BETWEEN created_sales_card AND addDays(
+      created_sales_card, 
+      {% if filter_values('window_days') %}
+        {{ filter_values('window_days')[0] }}
+      {% else %}
+        7
+      {% endif %}
+    )
+  ) / count(*) AS conversion_rate 
+FROM main_table 
+WHERE created_sales_card IS NOT NULL
+GROUP BY created_sales_card
