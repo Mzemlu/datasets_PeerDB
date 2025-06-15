@@ -1,0 +1,5 @@
+select 7 as window_days
+union all 
+select 14 as window_days
+union all 
+select 21 as window_days
