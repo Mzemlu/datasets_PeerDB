@@ -1,0 +1,76 @@
+WITH online_users AS (
+    SELECT 
+        transaction_date, 
+        user_id, 
+        if_employee, 
+        payment_plan_id, 
+        payment_plan, 
+        discount_name, 
+        payment_type 
+    FROM ddxfitness_prod_v2.bi_action_users 
+    WHERE payment_type = 'new'
+),
+
+grouped AS (
+    SELECT 
+        upp.transaction_date AS start_date,
+        upp.user_id, 
+        upp.if_employee,
+        upp.payment_plan_id, 
+        upp.payment_plan,
+        upp.discount_name,
+        iao.start_date AS infl_start_date,
+        iao.is_new, 
+        iao.is_outflow,
+        iao.is_inflow  
+    FROM online_users upp 
+    LEFT JOIN (
+        SELECT 
+            start_date, 
+            user_id, 
+            is_new, 
+            is_outflow, 
+            is_inflow, 
+            ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY start_date DESC) AS rn 
+        FROM ddxfitness_prod_v2.inflow_and_outflow_new
+    ) iao 
+        ON upp.user_id = iao.user_id AND rn = 1
+    WHERE payment_type = 'new'
+),
+
+final AS (
+    SELECT 
+        t1.user_id, 
+        t1.if_employee,
+        t1.discount_name,
+        payment_plan_id, 
+        t2.name AS payment_plan, 
+        is_new, 
+        is_outflow, 
+        is_inflow, 
+        start_date, 
+        infl_start_date, 
+        CASE 
+            WHEN infl_start_date = '1970-01-01' 
+              OR (is_new = 1 AND start_date::date < infl_start_date::date - INTERVAL '3' DAY) 
+              THEN 'new'
+            WHEN is_inflow = 1 
+              AND COALESCE(is_outflow, 0) = 0 
+              AND (start_date::date <= infl_start_date::date AND start_date::date >= infl_start_date::date - INTERVAL '3' DAY) 
+              THEN 'НЧК'
+            WHEN is_inflow = 1 
+              AND COALESCE(is_outflow, 0) = 0 
+              AND start_date::date > infl_start_date::date 
+              THEN 'ЧК'
+            WHEN is_outflow = 1 
+              OR (COALESCE(is_outflow, 0) = 0 AND is_new = 0) 
+              THEN 'БЧК'
+            ELSE 'хз' 
+        END AS if_new
+    FROM grouped t1
+    LEFT JOIN ddxfitness_prod_v2.pg_payment_plans t2 ON t1.payment_plan_id = t2.id
+)
+
+SELECT * 
+FROM final;
+-- WHERE start_date::date >= '2024-05-27' AND start_date::date <= '2024-06-04' AND if_employee = 'Клиент'
