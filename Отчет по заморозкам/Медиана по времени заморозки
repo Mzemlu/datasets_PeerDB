@@ -1,0 +1,122 @@
+-- SELECT month_date, 
+--        club_name, 
+--        percentile_cont(0.5) WITHIN GROUP (ORDER BY freeze_duration) 
+-- FROM (
+--     SELECT CASE
+--                WHEN uf.is_technical = TRUE THEN 'Техническая'
+--                WHEN uf.source IN ('mobile_app_avi', 'mobile_app') THEN 'Клиент из мобильного приложения'
+--                WHEN uf.source = 'crm' AND t.employee_id IN (3344,2386,2397,3286,2803,2338,3343,2026,3492,3496,3517,3536) THEN 'Пролонгация'
+--                WHEN uf.source = 'crm' THEN 'СМ'
+--                ELSE '0'
+--            END AS apply_type,
+--            to_char(uf.start_date, 'MON-YYYY') month_date,
+--            uf.start_date,
+--            c.name AS club_name,
+--            pp.name AS payment_plan,
+--            uf.planed_end_date - uf.start_date AS freeze_duration,
+--            t.id AS t_id,
+--            t.provider_id,
+--            t.user_id,
+--            t.employee_id,
+--            upp.payment_plan_id AS pp_id,
+--            coalesce(u.sex,'не указан') AS sex,
+--            refunded_transaction_id
+--     FROM ddxfitness_prod_v2.pg_user_freezes uf
+--     LEFT JOIN ddxfitness_prod_v2.pg_transactions t ON t.id = uf.transaction_id
+--     LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = uf.user_payment_plan_id
+--     LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = upp.club_id
+--     LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+--     LEFT JOIN ddxfitness_prod_v2.pg_users u ON u.id = upp.user_id
+--     LEFT JOIN (
+--         SELECT transaction_id, refunded_transaction_id
+--         FROM ddxfitness_prod_v2.pg_user_purchases
+--         WHERE refunded_transaction_id IS NOT NULL
+--         GROUP BY 1,2
+--     ) up ON up.transaction_id = uf.transaction_id
+--     WHERE uf.status NOT IN ('PaymentFailed')
+--       AND t.status = 'completed'
+--       AND c.name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+--       AND pp.name IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+--       AND coalesce(u.sex,'не указан') IN ({{ "'" + "', '".join(filter_values('sex')) + "'" }})
+-- ) t
+-- WHERE refunded_transaction_id IS NULL
+-- GROUP BY 1,2;
+
+
+SELECT month_date AS date_month_for_filter, 
+       club_name, 
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY freeze_duration) 
+FROM (
+    SELECT *
+    FROM (
+        SELECT 
+            to_char(uf.start_date, 'MON-YYYY') AS month_date,
+            uf.planed_end_date - uf.start_date AS freeze_duration,
+            CASE
+                WHEN uf.is_technical = TRUE THEN 'Техническая'
+                WHEN uf.source IN ('mobile_app_avi', 'mobile_app') THEN 'Клиент из мобильного приложения'
+                WHEN uf.source = 'crm' AND t.employee_id IN (3344,2386,2397,3286,2803,2338,3343,2026,3492,3496,3517,3536) THEN 'Пролонгация'
+                WHEN uf.source = 'crm' THEN 'СМ'
+                ELSE '0'
+            END AS apply_type,
+            extract(month FROM uf.start_date) AS freeze_month,
+            uf.start_date::date AS start_date,
+            c.name AS club_name,
+            pp.name AS payment_plan,
+            t.id AS t_id,
+            t.user_id,
+            upp.payment_plan_id AS pp_id,
+            coalesce(u.sex, 'не указан') AS sex,
+            up.refunded_transaction_id
+        FROM ddxfitness_prod_v2.pg_user_freezes uf
+        LEFT JOIN ddxfitness_prod_v2.pg_transactions t ON t.id = uf.transaction_id
+        LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = uf.user_payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = upp.club_id
+        LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_users u ON u.id = upp.user_id
+        LEFT JOIN (
+            SELECT transaction_id, refunded_transaction_id
+            FROM ddxfitness_prod_v2.pg_user_purchases
+            WHERE refunded_transaction_id IS NOT NULL
+            GROUP BY 1,2
+        ) up ON up.transaction_id = uf.transaction_id
+        WHERE uf.start_date >= '2023-01-01'
+          AND uf.status NOT IN ('PaymentFailed', 'PaymentPending')
+          AND t.status = 'completed'
+          AND c.name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+          AND pp.name IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+          AND coalesce(u.sex, 'не указан') IN ({{ "'" + "', '".join(filter_values('sex')) + "'" }})
+    ) t
+    WHERE refunded_transaction_id IS NULL
+
+    UNION ALL
+
+    SELECT *
+    FROM (
+        SELECT 
+            to_char(uf.start_date, 'MON-YYYY') AS month_date,
+            uf.planed_end_date - uf.start_date AS freeze_duration,
+            'Техническая' AS apply_type,
+            extract(month FROM uf.start_date) AS freeze_month,
+            uf.start_date::date AS start_date,
+            c.name AS club_name,
+            pp.name AS payment_plan,
+            0 AS t_id,
+            0 AS user_id,
+            upp.payment_plan_id AS pp_id,
+            coalesce(u.sex, 'не указан') AS sex,
+            0 AS refunded_transaction_id
+        FROM ddxfitness_prod_v2.pg_user_freezes uf
+        LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = uf.user_payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = upp.club_id
+        LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_users u ON u.id = upp.user_id
+        WHERE uf.start_date >= '2022-01-01' 
+          AND uf.start_date < '2023-01-01'
+          AND uf.status NOT IN ('PaymentFailed', 'PaymentPending')
+          AND c.name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+          AND pp.name IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+          AND coalesce(u.sex, 'не указан') IN ({{ "'" + "', '".join(filter_values('sex')) + "'" }})
+    ) t
+) t2
+GROUP BY 1,2;
