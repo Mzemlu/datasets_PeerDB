@@ -1,0 +1,33 @@
+SELECT 
+    user_id, 
+    user_payment_plan_id, 
+    CASE 
+        WHEN end_date IS NULL OR end_date > today() THEN 1 
+        ELSE 0 
+    END AS is_ended, 
+    end_date, 
+    count(DISTINCT transaction_id) AS qty_transactions 
+FROM ddxfitness_prod_v2.bi_action_users 
+WHERE 1 = 1     
+  AND user_payment_plan_id IN (
+      SELECT user_payment_plan_id 
+      FROM ddxfitness_prod_v2.bi_action_users bau 
+      WHERE 1 = 1  
+        {% if filter_values('is_banner_user') %} 
+        AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+        {% endif %}
+        {% if filter_values('gate_name') %} 
+        AND gate_name IN ({{ "'" + "', '".join(filter_values('gate_name')) + "'" }})
+        {% endif %}
+        {% if filter_values('discount_name_main') %} 
+        AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+        {% endif %} 
+        {% if filter_values('is_trial_user') %} 
+        AND is_trial_user IN ({{ "'" + "', '".join(filter_values('is_trial_user')) + "'" }})
+        {% endif %}
+        {% if filter_values('is_tracker_user') %} 
+        AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+        {% endif %}
+        AND payment_type = 'new'
+  )
+GROUP BY user_id, user_payment_plan_id, is_ended, end_date;
