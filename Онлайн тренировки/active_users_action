@@ -1,0 +1,70 @@
+with empl_list AS ( 
+			              select distinct user_id from (
+                              										select user_id 
+                              										from ddxfitness_prod_v2.pg_user_payment_plans upp 
+                              										where payment_plan_id in (1,152,208) 
+                              										and status in ('Current', 'PaymentPending', 'Freezed','NotStarted')
+                              										UNION ALL
+                              										select user_id  
+                              										from ddxfitness_prod_v2.pg_employees e2 
+                              										where is_active = 1)
+),
+list_users AS (
+                select 
+                        upp.id AS id,
+                        upp.user_id AS user_id, 
+                        upp.payment_plan_id AS payment_plan_id,
+                        pp.name AS payment_plan,
+                        upp.signed_date,
+                        upp.status,
+                        case 
+                            when (upp.payment_plan_id = 208 or e.user_id is not null) then 'Сотрудник'
+					            when e.user_id is null then 'Клиент' 
+					         end as if_employee 
+                from ddxfitness_prod_v2.pg_user_payment_plans upp
+                left join empl_list e ON upp.user_id = e.user_id
+                left join ddxfitness_prod_v2.pg_payment_plans pp ON upp.payment_plan_id = pp.id
+                where upp.payment_plan_id in (206, 205) 
+                  and upp.status in ('Current', 'PaymentPending', 'Freezed', 'NotStarted')
+),
+qty_transactions AS (   
+						SELECT 
+                                user_id, 
+								user_payment_plan_id, 
+								count(transaction_id) AS qty_transactions
+						FROM ddxfitness_prod_v2.bi_action_users bau 
+						WHERE if_employee = 'Клиент'
+						GROUP BY 1, 2
+)
+
+select 
+		t1.id,
+		t1.user_id AS user_id, 
+		t1.id AS user_payment_plan_id,
+		t1.payment_plan_id, 
+		t1.payment_plan,
+		t1.signed_date, 
+		t1.status, 
+		t1.if_employee,
+		case when t2.user_payment_plan_id = 0 then 'не оплачена' else 'оплачена' end AS if_payed,
+		discount_name,
+		is_banner_user,
+		is_trial_user,
+		is_tracker_user,
+		discount_name_main,
+		t3.qty_transactions
+from list_users t1
+LEFT JOIN (
+			select 
+					user_payment_plan_id,
+					CASE WHEN discount_name = '' THEN '-' ELSE discount_name END AS discount_name,
+					is_banner_user,
+					discount_name_main,
+					is_trial_user, 
+					is_tracker_user
+			from ddxfitness_prod_v2.bi_action_users 
+			where payment_type = 'new'
+) t2 ON t1.id = t2.user_payment_plan_id 
+LEFT JOIN qty_transactions t3
+	ON t1.id = t3.user_payment_plan_id
+;
