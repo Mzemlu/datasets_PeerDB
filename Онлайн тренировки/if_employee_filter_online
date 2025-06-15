@@ -1,0 +1,3 @@
+select 'Сотрудник' if_employee
+UNION All
+select 'Клиент'
