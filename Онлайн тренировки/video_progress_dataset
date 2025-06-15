@@ -1,0 +1,68 @@
+WITH list_video_progress AS (
+    SELECT 
+        id,
+        video_id, 
+        user_id, 
+        group_id, 
+        duration, 
+        is_completed, 
+        stars, 
+        difficulty, 
+        `comment`, 
+        toTimezone(updated_at, 'Europe/Moscow') + interval '6' hour AS updated_at,
+        toTimezone(updated_at, 'Europe/Moscow') + interval '3' hour AS updated_at_plus_3,
+        leadInFrame(updated_at) OVER (PARTITION BY user_id, id ORDER BY updated_at ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS next_updated,
+        lagInFrame(updated_at) OVER (PARTITION BY user_id, id ORDER BY updated_at) AS prev_updated,
+        date_diff('second', updated_at, leadInFrame(updated_at) OVER (PARTITION BY user_id, id ORDER BY updated_at ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)) AS min_between_next_session,
+        date_diff('second', lagInFrame(updated_at) OVER (PARTITION BY user_id, id ORDER BY updated_at), updated_at) AS min_between_prev_session,
+        CASE 
+            WHEN date_diff('second', lagInFrame(updated_at) OVER (PARTITION BY user_id, id ORDER BY updated_at), updated_at) >= 10800
+              OR date_diff('second', lagInFrame(updated_at) OVER (PARTITION BY user_id, id ORDER BY updated_at), updated_at) IS NULL 
+            THEN 1
+            ELSE 0 
+        END AS is_new_progress,
+        version
+    FROM ddxfitness_prod_v2.video_progress_history vph 
+    WHERE 1 = 1
+    ORDER BY updated_at
+),
+-- (весь остальной CTE-код без изменений)
+-- ...
+SELECT                                    
+    aibu.session_number,
+    aibu.id, 
+    aibu.title,
+    aibu.type, 
+    aibu.is_free,
+    aibu.duration,
+    aibu.video_id, 
+    aibu.user_id, 
+    aibu.group_id, 
+    aibu.qty_rows,
+    aibu.if_rewatch,
+    aibu.updated_at,
+    aibu.duration_by_qty_rows,
+    aibu.max_duration,
+    aibu.is_completed,
+    aibu.stars, 
+    aibu.difficulty, 
+    aibu.comment,
+    mrvbu.max_rewatch,
+    qurm1.qty_rewatch_more_1,
+    dd.discount_name
+FROM agregated_info_by_user aibu
+LEFT JOIN max_rewatch_video_by_user mrvbu 
+    ON aibu.video_id = mrvbu.video_id 
+   AND aibu.group_id = mrvbu.group_id 
+   AND aibu.user_id = mrvbu.user_id
+LEFT JOIN qty_user_rewatch_more_1 qurm1
+    ON aibu.video_id = qurm1.video_id 
+   AND aibu.group_id = qurm1.group_id
+LEFT JOIN (
+    SELECT user_id, discount_name 
+    FROM ddxfitness_prod_v2.bi_action_users 
+    WHERE payment_type = 'new'
+) dd
+    ON aibu.user_id = dd.user_id
+LEFT JOIN ddxfitness_prod_v2.pg_videos v 
+    ON aibu.video_id = v.id;
