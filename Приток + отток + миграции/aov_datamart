@@ -1,0 +1,121 @@
+-- WITH inflow_extraction AS (
+--     SELECT user_id,
+--            first_id,
+--            first_payment_plan_id,
+--            first_payment_plan_name, 
+--            inflow_club_name,
+--            c.name AS city,
+--            CASE 
+--                WHEN clubs.open_date > today() THEN 'Инвесты'
+--                WHEN city = 'Санкт-Петербург' THEN 'Санкт-Петербург'
+--                WHEN inflow_club_name IN ('DDX Авиапарк','DDX Щука','DDX Новокузнецкая Аркадия') THEN 'Москва (Центр)'
+--                WHEN city IN ('Москва', 'Красногорск', 'Мытищи', 'Одинцово','Химки', 'Зеленоград', 'Домодедово', 'Люберцы', 'Балашиха','Раменское','Ивантеевка',
+--                              'Видное', 'Котельники', 'Реутов') THEN 'Москва (Остальные)'
+--                ELSE 'Регионы'
+--            END AS city_category,
+--            start_date,
+--            end_date,
+--            status,
+--            CASE WHEN gate_name = '' THEN 'unknown' ELSE gate_name END gate_name
+--     FROM ddxfitness_prod_v2.inflow_and_outflow_new io
+--     INNER JOIN ddxfitness_prod_v2.pg_clubs clubs ON io.inflow_club = clubs.id 
+--     INNER JOIN ddxfitness_prod_v2.pg_cities c ON clubs.city_id = c.id
+--     LEFT JOIN (
+--         SELECT first_value(tg.name) OVER(PARTITION BY user_payment_plan_id ORDER BY updated_at) AS gate_name,
+--                bct.user_payment_plan_id
+--         FROM ddxfitness_prod_v2.bi_completed_transactions bct
+--         LEFT JOIN ddxfitness_prod_v2.pg_transaction_gates tg ON bct.gate_id = tg.id
+--         WHERE provider_id IN (6,17,20,21,26,27,37,38)
+--     ) tr ON io.first_id = tr.user_payment_plan_id
+--     WHERE first_payment_plan_id IN (SELECT id FROM ddxfitness_prod_v2.d_inflow_payment_plans)
+-- ),
+-- inflow_extraction_aggr AS (
+--     SELECT 
+--         start_date,
+--         first_payment_plan_id AS payment_plan_id,
+--         first_payment_plan_name AS payment_plan_name,
+--         inflow_club_name AS club_name,
+--         city,
+--         city_category,
+--         gate_name,
+--         count(*) AS total_qty
+--     FROM inflow_extraction
+--     GROUP BY 1,2,3,4,5,6,7
+-- ),
+-- all_subs_extraction AS (
+--     SELECT 
+--         upp.user_id,
+--         upp.id,
+--         upp.payment_plan_id,
+--         clubs.name AS club_name,
+--         c.name AS city,
+--         start_date,
+--         end_date,
+--         status,
+--         count(*) OVER() AS total_qty
+--     FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+--     INNER JOIN ddxfitness_prod_v2.pg_clubs clubs ON upp.club_id = clubs.id 
+--     INNER JOIN ddxfitness_prod_v2.pg_cities c ON clubs.city_id = c.id
+--     WHERE payment_plan_id IN (SELECT id FROM ddxfitness_prod_v2.d_inflow_payment_plans)
+-- ),
+-- revenue AS (
+--     SELECT 
+--         bct.updated_at::date AS date,
+--         c.name AS club_name,
+--         upp.payment_plan_id,
+--         pp.name AS payment_plan_name,
+--         cities.name AS city,
+--         CASE 
+--             WHEN c.open_date > today() THEN 'Инвесты'
+--             WHEN cities.name = 'Санкт-Петербург' THEN 'Санкт-Петербург'
+--             WHEN club_name IN ('DDX Авиапарк','DDX Щука','DDX Новокузнецкая Аркадия') THEN 'Москва (Центр)'
+--             WHEN cities.name IN ('Москва', 'Красногорск', 'Мытищи', 'Одинцово','Химки', 'Зеленоград', 'Домодедово', 'Люберцы', 'Балашиха','Раменское','Ивантеевка',
+--                                  'Видное', 'Котельники', 'Реутов') THEN 'Москва (Остальные)'
+--             ELSE 'Регионы'
+--         END AS city_category,
+--         tg.name AS gate_name,
+--         SUM(CASE WHEN provider_id IN (6,17,20,21,26,27,37,38) AND user_payment_plan_id IN (SELECT first_id FROM inflow_extraction)
+--                  THEN total_amount ELSE 0 END) AS inflow_amount,
+--         SUM(CASE WHEN provider_id IN (6,17,20,21,26,27,37,38) AND user_payment_plan_id IN (SELECT first_id FROM inflow_extraction)
+--                  THEN bct.membership_fee ELSE 0 END) AS inflow_membership_fee,
+--         SUM(CASE WHEN provider_id IN (6,17,20,21,26,27,37,38) AND user_payment_plan_id IN (SELECT first_id FROM inflow_extraction)
+--                  THEN join_fee ELSE 0 END) AS inflow_join_fee,
+--         SUM(CASE WHEN provider_id IN (1,2,10,9) THEN 1
+--                  WHEN provider_id IN (6,17,20,21,26,27,37,38) AND bct.membership_fee > 0 THEN 1
+--                  ELSE 0 END) AS qty_transactions,
+--         SUM(CASE WHEN provider_id IN (1,2,10,9) THEN total_amount
+--                  WHEN provider_id IN (6,17,20,21,26,27,37,38) THEN bct.membership_fee
+--                  ELSE 0 END) AS reccurent_total
+--     FROM ddxfitness_prod_v2.bi_completed_transactions bct
+--     LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos cli ON bct.club_legal_info_id = cli.id
+--     LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON cli.club_id = c.id
+--     LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON bct.user_payment_plan_id = upp.id
+--     INNER JOIN ddxfitness_prod_v2.pg_cities cities ON c.city_id = cities.id
+--     LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON upp.payment_plan_id = pp.id
+--     LEFT JOIN ddxfitness_prod_v2.pg_transaction_gates tg ON bct.gate_id = tg.id
+--     WHERE provider_id IN (1,2,10,9,6,17,20,21,26,27,37,38)
+--       AND user_payment_plan_id IN (SELECT id FROM all_subs_extraction)
+--       AND type = 'payment'
+--     GROUP BY 1,2,3,4,5,6,7
+-- )
+-- SELECT start_date AS date,
+--        iea.club_name,
+--        iea.city,
+--        iea.city_category,
+--        iea.payment_plan_id,
+--        iea.payment_plan_name,
+--        iea.gate_name,
+--        inflow_amount,
+--        inflow_membership_fee,
+--        inflow_join_fee,
+--        qty_transactions,
+--        reccurent_total,
+--        total_qty AS inflow_qty,
+--        SUM(inflow_qty) OVER(PARTITION BY toStartOfMonth(date)) AS total_inflow_qty
+-- FROM inflow_extraction_aggr iea
+-- LEFT JOIN revenue r ON r.club_name = iea.club_name 
+--                     AND r.date = iea.start_date 
+--                     AND r.payment_plan_id = iea.payment_plan_id 
+--                     AND r.gate_name = iea.gate_name;
+
+SELECT * FROM ddxfitness_prod_v2.bi_aov_datamart;
