@@ -1,0 +1,16 @@
+SELECT 
+    date_day_for_filter, 
+    CASE 
+        WHEN formatDateTime(today(), '%d') = date_day_for_filter THEN 100 
+        ELSE rn - 1 
+    END AS max_value
+FROM (
+    SELECT 
+        formatDateTime(day_id_day, '%d') AS date_day_for_filter,
+        formatDateTime(today(), '%d') AS date_day_for_filter_2,
+        row_number() OVER (ORDER BY date_day_for_filter DESC) AS rn
+    FROM ddxfitness_prod_v2.d_day
+    WHERE day_id_day >= '2023-10-01' AND day_id_day <= '2023-10-31'
+    ORDER BY 1 DESC
+)
+GROUP BY 1, 2;
