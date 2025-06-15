@@ -1,0 +1,3 @@
+SELECT 'female' sex
+UNION 
+select 'male'
