@@ -1,0 +1,5 @@
+select 'Действующий клиент' as reason
+union all
+select 'Ранее уже был клиентом' as reason
+union all
+select 'Доп услуги' as reason
