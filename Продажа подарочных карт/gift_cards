@@ -1,0 +1,21 @@
+SELECT 
+    id,
+    nominal,
+    balance,
+    transaction_id,
+    from_user_id,
+    to_user_id,
+    CASE 
+        WHEN state = 'closed' THEN 'Карта использована'
+        WHEN state = 'active' THEN 'Карта активирована получателем, не использована'
+        WHEN state = 'sended' THEN 'Карта отправлена получателю, не активирована'
+        WHEN state = 'payed' THEN 'Карта оплачена, не отправлена получателю (ожидает отправки)'
+        WHEN state = 'payment_pending' THEN 'Карта создана, платежная транзакция в статусе in_progress'
+        WHEN state = 'created' THEN 'Карта создана'
+        WHEN state = 'failed' THEN 'Карта создана, ошибка при оплате (связь с транзакцией покупки карты)'
+    END AS state,
+    created_at,
+    updated_at
+FROM ddxfitness_prod_v2.pg_gift_cards
+WHERE toDate(created_at) >= '2024-12-09' -- Запустили продажи, до этого тестовые покупки
+;
