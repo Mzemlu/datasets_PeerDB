@@ -1,0 +1,122 @@
+with bank_transactions as (
+		select row_number() over () as id,
+				--toDate(date_date) as date_bank,	
+				--case when length(time_date) < 8 then concat('0', time_date)
+        		--else time_date end as time_bank,
+        		card_number,
+        		amount as amount_bank
+		from ddxfitness_prod_v2.pg_halva_transactions cfb
+		where toMonth(date) = 12
+		),
+november_transactions as (
+		select t.id as transaction_id,
+				t.updated_at as payment_date,
+				t.user_id as user_id,
+				t.type as type,
+				t.provider_id as provider_id ,
+				t.description as description ,
+				t.total_amount as total_amount_our,
+				t.updated_at as updated_at ,
+				t.card_token_id as card_token_id ,
+				s.public_card_number as public_card_number,
+				toDate(substring(toString(t.updated_at), 1, 10)) AS date_our,
+	    		substring(toString(t.updated_at), 12, 8) AS time_our,
+	    		tp.name as name_provider,
+	    		tp.description as description_provider
+				--updated_at + interval 3 hour as updated_at_new
+		from ddxfitness_prod_v2.pg_transactions t 
+		left join ddxfitness_prod_v2.pg_card_tokens s on t.card_token_id = s.id
+		left join ddxfitness_prod_v2.pg_transaction_providers tp on t.provider_id = tp.id
+		where toStartOfMonth(toTimezone(t.updated_at, 'Europe/Moscow')) = '2024-12-1'
+				and t.type = 'payment'
+				),
+inflow_users_users as (
+		select user_id as new_user_id,
+				is_new,
+				is_inflow,
+				start_date 
+		from ddxfitness_prod_v2.inflow_and_outflow_new iao 
+		where toStartOfMonth(start_date) = '2024-12-1' --and is_new = 1
+		),
+final_table as (
+		select s.id as id,
+				--s.date_bank as date_transaction_bank,
+				--s.time_bank as time_transaction_bank,
+				s.amount_bank as amount_transaction_bank,
+				t.total_amount_our,
+				t.transaction_id as our_transaction_id,
+				t.payment_date as payment_date,
+				t.user_id as our_user_id,
+				t.description as description,
+				y.is_inflow as is_inflow,
+				y.is_new as is_new_user,
+				s.card_number as card_number ,
+				t.public_card_number,
+				t.name_provider as name_provider,
+				t.description_provider as description_provider
+		from bank_transactions s 
+		left join november_transactions t on s.card_number = t.public_card_number       /*s.date_bank = t.date_our and s.time_bank = t.time_our and s.amount_bank = t.total_amount_our*/
+		left join inflow_users_users y on t.user_id = y.new_user_id
+		where s.amount_bank = t.total_amount_our
+		),
+category_transaction as (
+	select id,
+			--date_transaction_bank,
+			--time_transaction_bank,
+			amount_transaction_bank,
+			our_transaction_id,
+			payment_date,
+			our_user_id,
+			description,
+			card_number,
+			--name_provider,
+			--description_provider,
+			case when is_new_user = 1 and description = 'Оплата тарифного плана' then 'Одобрено' else 'Не одобрено' end as status,
+			case when is_inflow = 0 then 'Действующий клиент'
+					when is_inflow = 1 and is_new_user = 0 then 'Ранее уже был клиентом' 
+					when is_inflow = 1 and is_new_user = 1 and description <> 'Оплата тарифного плана' then 'Доп услуги'
+					end as reason,
+			case when count(*) over (partition by id) > 1 then 'Дублируется' end as dubl,
+			is_new_user
+	from final_table),
+/*Транзакции которые не смэтчились*/
+not_join_transactions as (
+		select b.id,
+				--b.date_bank as date_transaction_bank,
+				--b.time_bank as time_transaction_bank,
+				b.card_number as card_number,
+				b.amount_bank as amount_transaction_bank
+		from bank_transactions b 
+		left join (select distinct id from category_transaction) n on b.id = n.id
+		where n.id = 0),
+union_table_final as (
+select id,
+		--date_transaction_bank,
+		--time_transaction_bank,
+		amount_transaction_bank,
+		our_transaction_id,
+		payment_date,
+		our_user_id,
+		description,
+		card_number,
+		status,
+		reason,
+		dubl,
+		is_new_user
+from category_transaction 
+ union all
+select id,
+		--date_transaction_bank,
+		--time_transaction_bank,
+		amount_transaction_bank,
+		null as our_transaction_id,
+		null as payment_date,
+		null as our_user_id,
+		null as description,
+		card_number,
+		'Нет совпадения'::text as status,
+		'Нет совпадения'::text as reason,
+		null as dubl,
+		null as is_new_user
+from not_join_transactions)
+select * from union_table_final;
