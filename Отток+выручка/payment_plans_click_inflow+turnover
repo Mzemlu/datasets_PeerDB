@@ -1,0 +1,19 @@
+SELECT 
+    cl.name AS club_name,
+    upp.id AS id,
+    pp.name AS name,
+    CASE 
+        WHEN payment_plan_id IN (18, 241) THEN 'Infinity 1мес'
+        WHEN payment_plan_id IN (20, 242, 278) THEN 'Light 1месяц'
+        WHEN payment_plan_id IN (22, 243, 277) THEN 'Smart 1месяц'
+        ELSE 'Другие подписки' 
+    END AS payment_plan,
+    count(*) OVER () AS num_plans
+FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON upp.payment_plan_id = pp.id
+WHERE upp.payment_plan_id IN (
+    SELECT id FROM ddxfitness_prod_v2.d_inflow_payment_plans
+)
+AND status NOT IN ('Ended', 'Created', 'Deleted', 'Refunded')
+GROUP BY 1, 2, 3, 4;
