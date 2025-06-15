@@ -1,0 +1,42 @@
+SELECT *,
+       CASE 
+           WHEN diff_days <= 30 THEN '<1 месяца'
+           WHEN diff_days > 30 AND diff_days <= 60 THEN '1-2 месяца'
+           WHEN diff_days > 60 AND diff_days <= 90 THEN '2-3 месяца'
+           WHEN diff_days > 90 AND diff_days <= 120 THEN '3-4 месяца'
+           WHEN diff_days > 120 AND diff_days <= 150 THEN '4-5 месяца'
+           WHEN diff_days > 150 AND diff_days <= 180 THEN '5-6 месяцев'
+           WHEN diff_days > 180 AND diff_days <= 210 THEN '6-7 месяцев'
+           WHEN diff_days > 210 AND diff_days <= 240 THEN '7-8 месяцев'
+           WHEN diff_days > 240 AND diff_days <= 270 THEN '8-9 месяцев'
+           ELSE 'более 9 месяцев'
+       END AS qty_months,
+       COUNT(*) OVER () AS total
+FROM (
+    SELECT 
+        user_id,
+        CASE 
+            WHEN age >= 16 AND age <= 19 THEN '16-19'		
+            WHEN age >= 20 AND age <= 24 THEN '20-24'
+            WHEN age >= 25 AND age <= 29 THEN '25-29'
+            WHEN age >= 30 AND age <= 34 THEN '30-34'
+            WHEN age >= 35 AND age <= 39 THEN '35-39'
+            WHEN age >= 40 AND age <= 44 THEN '40-44'
+            WHEN age >= 45 AND age <= 50 THEN '45-50'
+            ELSE 'старше 50'
+        END AS age,
+        sex, 
+        first_id, 
+        inflow_club_name, 
+        last_payment_plan_name,
+        end_date,
+        CASE 
+            WHEN end_date IS NULL THEN date_diff('day', start_date, end_date)
+            ELSE diff_days 
+        END AS diff_days
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new iao 
+    WHERE is_outflow = 1 AND sex <> ''
+) t1
+INNER JOIN ddxfitness_prod_v2.pg_clubs t2
+    ON t1.inflow_club_name = t2.name 
+   AND t2.open_date <= today();
