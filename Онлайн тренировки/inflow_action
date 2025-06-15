@@ -1,0 +1,95 @@
+WITH empl_list AS 
+	(select distinct user_id from (
+		select user_id 
+		from ddxfitness_prod_v2.pg_user_payment_plans upp 
+		where payment_plan_id in (1,152,208) and status = 'Current'
+		UNION ALL
+		select user_id  
+		from ddxfitness_prod_v2.pg_employees e2 
+		where is_active = 1
+	)),
+
+cte AS (
+	select 
+		transaction_date,
+		transaction_id,
+		user_id,
+		provider_id,
+		payment_plan_id,
+		payment_plan,
+		user_payment_plan_id,
+		club_name,
+		total_amount,
+		gate_name,
+		is_new,
+		first_id,
+		sex,
+		payment_plan_type,
+		case when payment_rank = 1 then 'new' else 'repeat' end as payment_type
+	from (
+		select 
+			toTimezone(t.created_at, 'Europe/Moscow') + toIntervalHour(3) AS transaction_date,
+			t.id as transaction_id,
+			t.user_id as user_id,
+			case
+				when e.user_id is null then 'Клиент'
+				else 'Сотрудник'
+			end if_employee,
+			provider_id,
+			upp.payment_plan_id,
+			pp.name as payment_plan,
+			t.user_payment_plan_id,
+			c.name AS club_name,
+			total_amount,
+			tg.name as gate_name,
+			w.is_new,
+			w.first_id,
+			us.sex as sex,
+			pp2.payment_plan_type as payment_plan_type,
+			row_number() over (partition by t.user_payment_plan_id order by t.created_at) as payment_rank
+		from ddxfitness_prod_v2.pg_transactions t
+			inner join ddxfitness_prod_v2.pg_user_payment_plans upp on upp.id = t.user_payment_plan_id
+			inner join ddxfitness_prod_v2.pg_clubs c on c.id = upp.club_id
+			inner join ddxfitness_prod_v2.pg_payment_plans pp on upp.payment_plan_id = pp.id
+			inner join ddxfitness_prod_v2.pg_transaction_gates tg on t.gate_id = tg.id
+			left join ddxfitness_prod_v2.inflow_and_outflow w on t.user_payment_plan_id = w.first_id
+			left join ddxfitness_prod_v2.pg_users us on t.user_id = us.id
+			left join ddxfitness_prod_v2.pg_payment_plans pp2 on upp.payment_plan_id = pp2.id
+			left join empl_list e ON upp.user_id = e.user_id
+		where t.status = 'completed'
+		  and upp.payment_plan_id in (205, 206, 208)
+		  and provider_id in (1,2,6,9,10,17)
+		  and if_employee in ({{ "'" + "', '".join(filter_values('if_employee')) + "'" }})
+	) ranked_transactions
+	where toDate(transaction_date) >= '2024-01-01'
+),
+
+inflow AS (
+	select start_date, sum(is_inflow) as inflow 
+	from ddxfitness_prod_v2.inflow_and_outflow 
+	group by 1
+),
+
+outflow AS (
+	select end_date, sum(is_outflow) as outflow 
+	from ddxfitness_prod_v2.inflow_and_outflow 
+	group by 1
+),
+
+inflow_action AS (
+	select 
+		transaction_date::date as date, 
+		sum(case when payment_type = 'new' then 1 else 0 end) as total_action,
+		sum(case when payment_type = 'new' and payment_plan = 'Action199' then 1 else 0 end) as action_199
+	from cte c
+	group by 1
+)
+
+select 
+	date, 
+	total_action, 
+	action_199, 
+	inflow
+from inflow_action ia
+left join inflow i 
+	on ia.date = i.start_date;
