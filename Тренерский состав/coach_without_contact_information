@@ -1,0 +1,8 @@
+SELECT COUNT(DISTINCT p.employee_id) AS personal_trainers_no_contact
+FROM ddxfitness_prod_v2.pg_positions p
+LEFT JOIN ddxfitness_prod_v2.pg_coach_contact_infos cci 
+       ON p.employee_id = cci.employee_id
+      AND cci.is_deleted = false
+WHERE p.name = 'Персональный тренер'
+  AND p.is_deleted = false
+  AND cci.employee_id IS NULL;
