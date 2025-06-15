@@ -1,0 +1,75 @@
+with action_list AS 
+	(select * 
+	 from ddxfitness_prod_v2.bi_action_users 
+	 where payment_type = 'new'
+	 {% if filter_values('discount_name_main') %} 
+	 AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+	 {% endif %}
+	 {% if filter_values('is_banner_user') %} 
+	 AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+	 {% endif %}
+	 {% if filter_values('is_tracker_user') %} 
+	 AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+	 {% endif %}
+	),
+     
+inflow_offline AS (
+	select 
+		start_date,
+		CASE 
+			WHEN gate_id = 1 THEN 'mobile app'
+			WHEN gate_id = 2 THEN 'internal'
+			WHEN gate_id = 3 THEN 'admin panel'
+			WHEN gate_id = 4 THEN 'service device'
+			WHEN gate_id = 5 THEN 'web site'
+			WHEN gate_id = 6 THEN 'crm'
+			WHEN gate_id = 7 THEN 'pacs'
+			WHEN gate_id = 8 THEN 'undefined'
+		END AS gate_name,
+		sum(is_inflow) AS inflow
+	from ddxfitness_prod_v2.inflow_and_outflow upp
+	LEFT JOIN (
+		select
+			id AS trans_id,
+			user_payment_plan_id,
+			gate_id,
+			created_at,
+			updated_at, 
+			row_number() OVER (PARTITION BY user_payment_plan_id ORDER BY id) AS rn
+		from ddxfitness_prod_v2.pg_transactions 
+		where NOT is_deleted 
+		  AND status = 'completed'
+	) trans1
+	on upp.first_id = trans1.user_payment_plan_id 
+	   AND trans1.rn = 1
+	group by 1,2
+), 
+
+inflow_action AS (
+	select 
+		transaction_date::date AS date, 
+		gate_name,
+		sum(CASE WHEN payment_type = 'new' THEN 1 ELSE 0 END) AS total_action,
+		sum(CASE WHEN payment_type = 'new' AND payment_plan = 'Action199' THEN 1 ELSE 0 END) AS action_199
+	from action_list c
+	group by 1,2
+)
+
+select 
+	case 
+		when ia.date = '1970-01-01' THEN io.start_date 
+		else ia.date 
+	end AS date, 
+	case 
+		when ia.gate_name = '' THEN io.gate_name 
+		else ia.gate_name 
+	end AS gate_name, 
+	total_action, 
+	action_199, 
+	inflow 
+from inflow_action ia
+FULL JOIN inflow_offline io 
+	ON ia.date = io.start_date
+	AND ia.gate_name = io.gate_name
+-- where start_date = '2024-05-28'
+;
