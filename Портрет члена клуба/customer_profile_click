@@ -1,0 +1,80 @@
+WITH users_birthday_click AS (
+    SELECT id,
+           phone,
+           email,
+           sex,
+           sport_experience,
+           CASE WHEN birthday_click = '1900-01-01' THEN birthday_postgre ELSE birthday_click END AS birthday
+    FROM (
+        SELECT id,
+               birthday AS birthday_postgre,
+               phone,
+               email,
+               sex,
+               sport_experience,
+               CASE 
+                   WHEN birthday IS NOT NULL THEN CAST((CAST(birthday AS Int32) - 65536) AS Date32) 
+               END AS birthday_click
+        FROM ddxfitness_prod.users
+    ) t
+),
+users_list AS (
+    SELECT 
+        id AS user_id,
+        phone,
+        email,
+        sex,
+        toUInt8(age('year', birthday, today())) AS age,
+        CASE
+            WHEN toUInt8(age('year', birthday, today())) BETWEEN 16 AND 18 THEN '16-18 лет'
+            WHEN toUInt8(age('year', birthday, today())) BETWEEN 19 AND 24 THEN '19-24 года'
+            WHEN toUInt8(age('year', birthday, today())) BETWEEN 25 AND 30 THEN '25-30 лет'
+            WHEN toUInt8(age('year', birthday, today())) BETWEEN 31 AND 35 THEN '31-35 лет'
+            WHEN toUInt8(age('year', birthday, today())) BETWEEN 36 AND 40 THEN '36-40 лет'
+            WHEN toUInt8(age('year', birthday, today())) BETWEEN 41 AND 45 THEN '41-45 лет'
+            WHEN toUInt8(age('year', birthday, today())) BETWEEN 46 AND 55 THEN '46-55 лет'
+            WHEN toUInt8(age('year', birthday, today())) BETWEEN 56 AND 65 THEN '56-65 лет'
+            WHEN toUInt8(age('year', birthday, today())) >= 66 THEN '66 лет и более'
+            ELSE 'not found'
+        END AS age_category,
+        sport_experience,
+        CASE 
+            WHEN sport_experience IS NULL OR sport_experience = 'Не указан' THEN 0 
+            ELSE 1 
+        END AS sport_experience_groups
+    FROM users_birthday_click
+)
+SELECT 
+    cl.name AS club_name, 
+    ul.user_id,
+    ul.phone,
+    ul.age,
+    ul.email,
+    ul.sex,
+    ul.sport_experience,
+    ul.age_category,
+    count(ul.user_id) OVER () AS users_total,
+    count(ul.sport_experience) OVER () AS users_total_experience,
+    sum(ul.sport_experience_groups) OVER () AS sport_experience_groups,
+    CASE 
+        WHEN upp.payment_plan_id IN (19,20,242,244,278) THEN 'Light'
+        WHEN upp.payment_plan_id IN (21,22,243,245,277) THEN 'Smart'
+        WHEN upp.payment_plan_id IN (18,28,118,162,49,92,241,246) THEN 'Infinity'
+        WHEN upp.payment_plan_id = 135 THEN 'AllRide'
+    END AS plan_group,
+    CASE 
+        WHEN ul.sport_experience = 'Нет опыта' THEN 1
+        WHEN ul.sport_experience = '0-6 месяцев' THEN 2
+        WHEN ul.sport_experience = '6-12 месяцев' THEN 3
+        WHEN ul.sport_experience = '1-2 года' THEN 4
+        WHEN ul.sport_experience = '2-3 года' THEN 5
+        WHEN ul.sport_experience = '3-5 лет' THEN 6
+        WHEN ul.sport_experience = 'Больше 5 лет' THEN 7
+        ELSE 100
+    END AS sport_experience_sort
+FROM ddxfitness_prod.user_payment_plans upp
+JOIN ddxfitness_prod.clubs cl ON cl.id = upp.club_id
+JOIN users_list ul ON ul.user_id = upp.user_id
+WHERE upp.payment_plan_id IN (SELECT id FROM d_inflow_payment_plans)
+  AND coalesce(cancel_reason, '') <> 'ExcludeFromReport'
+  AND upp.status IN ('Current', 'Freezed', 'NotStarted', 'PaymentPending');
