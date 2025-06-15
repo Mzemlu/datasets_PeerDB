@@ -1,0 +1,16 @@
+SELECT 
+    created_at,
+    total_amount,
+    card_token_id,
+    provider_id,
+    CASE 
+        WHEN t.provider_id IN (25, 27, 29, 30, 36, 38) THEN 'Балансом'
+        ELSE CASE 
+            WHEN card_token_id > 0 THEN 'Токеном'
+            ELSE 'Виджетом' 
+        END 
+    END AS group_transactions
+FROM ddxfitness_prod_v2.pg_transactions t 
+WHERE provider_id BETWEEN 24 AND 38
+  AND type = 'payment' 
+  AND status = 'completed';
