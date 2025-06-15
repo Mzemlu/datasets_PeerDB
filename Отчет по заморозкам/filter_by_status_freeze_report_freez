@@ -1,0 +1,3 @@
+SELECT DISTINCT 
+    status AS status_freeze 
+FROM ddxfitness_prod_v2.pg_user_freezes;
