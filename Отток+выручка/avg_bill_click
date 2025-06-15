@@ -1,0 +1,56 @@
+WITH transactions AS (    
+    SELECT 
+        (t.created_at + INTERVAL '3 hour')::date AS date,
+        t.user_payment_plan_id,
+        t.user_id,
+        c.name AS club_name,
+        CASE
+            WHEN t.provider_id IN (1,2,5,6,7,9,10,12,13,16,17,24,25,26,27,28,29,30,31,34,37,38) THEN t.total_amount
+            WHEN t.provider_id IN (8,11,14,15) THEN t.total_amount * -1
+            WHEN t.provider_id IN (3,4) THEN 0
+        END AS total_amount,
+        CASE
+            WHEN t.provider_id IN (1,2,5,6,7,9,10,12,13,16,17,24,25,26,27,28,29,30,31,34,37,38) THEN t.join_fee
+            WHEN t.provider_id IN (3,4) THEN 0
+            ELSE t.join_fee * -1
+        END AS join_fee,
+        CASE
+            WHEN t.provider_id IN (1,2,5,6,7,9,10,12,13,16,17,24,25,26,27,28,29,30,31,34,37,38) THEN t.membership_fee
+            WHEN t.provider_id IN (3,4) THEN 0
+            ELSE t.membership_fee * -1
+        END AS membership_fee
+    FROM ddxfitness_prod_v2.pg_transactions t
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = t.user_payment_plan_id
+    LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos cli ON t.club_legal_info_id = cli.id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = cli.club_id
+    LEFT JOIN ddxfitness_prod_v2.pg_users u ON t.user_id = u.id 
+    WHERE t.status = 'completed'
+      AND t.total_amount <> 10
+      AND t.updated_at + INTERVAL '3' hour >= '2023-08-01'
+    GROUP BY 1, 2, 3, 4, 5, 6, 7
+),
+
+planned_targets AS (
+    SELECT 
+        date, 
+        club_name, 
+        to / toInt32(dateDiff(DAY, toStartOfMonth(toDate(date)), toLastDayOfMonth(toDate(date))) + 1) AS plan_to,
+        avg_bill 
+    FROM ddxfitness_prod_v2.bi_planned_targets
+)
+
+SELECT 
+    t.date, 
+    dateDiff(DAY, toStartOfMonth(t.date), toLastDayOfMonth(t.date)) + 1 AS qty_days,
+    t.club_name, 
+    t.user_id,
+    t.user_payment_plan_id,
+    t.total_amount, 
+    t.join_fee, 
+    t.membership_fee, 
+    pt.plan_to, 
+    pt.avg_bill 
+FROM transactions t 
+LEFT JOIN planned_targets pt 
+    ON t.club_name = pt.club_name 
+   AND toDate(pt.date) = toStartOfMonth(t.date);
