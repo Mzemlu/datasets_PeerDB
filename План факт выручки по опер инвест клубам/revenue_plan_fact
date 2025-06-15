@@ -1,0 +1,92 @@
+WITH clubs_list AS (
+    SELECT 
+        c.id, 
+        c.name AS club_name, 
+        toStartOfMonth(c.open_date) AS open_date 
+    FROM ddxfitness_prod_v2.pg_clubs c
+),
+revenue_main AS (
+    SELECT 
+        c.name AS club_name,
+        cl.open_date AS open_date,
+        CASE WHEN provider_id IN (
+            1,2,3,6,7,9,13,16,20,22,24
+        ) THEN 1 ELSE 0 END AS financial_flag,
+        CASE WHEN provider_id IN (
+            1,2,5,6,7,9,10,12,13,16,17,20,21,22,23,26,27,28,29,30,31,35,36
+        ) THEN 1 ELSE 0 END AS accounting_flag,
+        CASE WHEN provider_id IN (
+            8,11,14,15,18,19
+        ) THEN 1 ELSE 0 END AS accounting_refund_flag,
+        CASE WHEN provider_id IN (
+            4,8,11,15
+        ) THEN 1 ELSE 0 END AS financial_refund_flag,
+        bct.id,
+        bct.total_amount,
+        bct.updated_at::date AS date
+    FROM ddxfitness.bi_completed_transactions bct
+    LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos cli ON bct.club_legal_info_id = cli.id 
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON cli.club_id = c.id
+    LEFT JOIN clubs_list cl ON c.name = cl.club_name
+    WHERE 1 = 1
+      AND provider_id NOT IN (25, 34, 37, 38)
+      AND bct.updated_at::date >= '2025-01-01'
+),
+revenue_aggr AS (
+    SELECT 
+        toStartOfMonth(date::date) AS date, 
+        club_name, 
+        open_date,
+        CASE 
+            WHEN open_date < date THEN 'Операционное' 
+            ELSE 'Инвестиционное' 
+        END AS open_club_type,
+        financial_flag, 
+        accounting_flag,
+        accounting_refund_flag,
+        financial_refund_flag,
+        sum(total_amount) AS total_amount 
+    FROM revenue_main 
+    GROUP BY 1,2,3,4,5,6,7,8
+),
+revenue_aggr_final AS (
+    SELECT 
+        date,
+        club_name, 
+        open_club_type,
+        sum(CASE WHEN financial_flag = 1 THEN total_amount ELSE 0 END) AS financial_revenue,
+        sum(CASE WHEN financial_refund_flag = 1 THEN total_amount ELSE 0 END) AS financial_refund,
+        sum(CASE WHEN financial_flag = 1 THEN total_amount ELSE 0 END) - sum(CASE WHEN financial_refund_flag = 1 THEN total_amount ELSE 0 END) AS financial_revenue_total, 
+        sum(CASE WHEN accounting_flag = 1 THEN total_amount ELSE 0 END) AS accounting_revenue,
+        sum(CASE WHEN accounting_refund_flag = 1 THEN total_amount ELSE 0 END) AS accounting_refund,
+        sum(CASE WHEN accounting_flag = 1 THEN total_amount ELSE 0 END) - sum(CASE WHEN accounting_refund_flag = 1 THEN total_amount ELSE 0 END) AS accounting_revenue_total 
+    FROM revenue_aggr
+    GROUP BY 1,2,3
+),
+grouped_data AS (
+    SELECT 
+        ragg.date, 
+        upperUTF8(formatDateTime(ragg.date, '%b-%Y')) AS date_month_for_filter,
+        ragg.club_name, 
+        ragg.open_club_type,
+        ragg.financial_revenue,
+        ragg.financial_refund,
+        ragg.accounting_revenue,
+        ragg.accounting_refund,
+        ragg.financial_revenue_total,
+        ragg.accounting_revenue_total,
+        rp.reccurent AS reccurent_plan,
+        rp.total AS total_plan,
+        rp.other AS other_plan,
+        rp.trainers AS trainers_plan,    
+        rf.reccurent AS reccurent_fact,
+        rf.total AS total_fact,
+        rf.other AS other_fact,
+        rf.trainers AS trainers_fact    
+    FROM revenue_aggr_final ragg
+    LEFT JOIN ddxfitness_prod_v2.revenue_plans rp 
+        ON ragg.date = toStartOfMonth(rp.date) AND ragg.club_name = rp.club_name 
+    LEFT JOIN ddxfitness_prod_v2.revenue_fact rf 
+        ON ragg.date = toStartOfMonth(rf.date) AND ragg.club_name = rf.club_name
+)
+SELECT * FROM grouped_data;
