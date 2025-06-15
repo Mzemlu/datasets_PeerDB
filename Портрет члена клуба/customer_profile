@@ -1,0 +1,67 @@
+WITH users_list AS (
+    SELECT 
+        id AS user_id,
+        phone,
+        email,
+        sex,
+        extract(year from age(birthday)) AS age,
+        CASE 
+            WHEN extract(year from age(birthday)) BETWEEN 16 AND 18 THEN '16-18 лет'
+            WHEN extract(year from age(birthday)) BETWEEN 19 AND 24 THEN '19-24 года'
+            WHEN extract(year from age(birthday)) BETWEEN 25 AND 30 THEN '25-30 лет'
+            WHEN extract(year from age(birthday)) BETWEEN 31 AND 35 THEN '31-35 лет'
+            WHEN extract(year from age(birthday)) BETWEEN 36 AND 40 THEN '36-40 лет'
+            WHEN extract(year from age(birthday)) BETWEEN 41 AND 45 THEN '41-45 лет'
+            WHEN extract(year from age(birthday)) BETWEEN 46 AND 55 THEN '46-55 лет'
+            WHEN extract(year from age(birthday)) BETWEEN 56 AND 65 THEN '56-65 лет'
+            WHEN extract(year from age(birthday)) >= 66 THEN '66 лет и более'
+            ELSE 'not found'
+        END AS age_category,
+        sport_experience,
+        CASE 
+            WHEN sport_experience IS NULL OR sport_experience = 'Не указан' THEN 0 
+            ELSE 1 
+        END AS sport_experience_groups
+    FROM ddxfitness_prod_v2.pg_users
+    WHERE sex IN ({{ "'" + "', '".join(filter_values('sex')) + "'" }})
+)
+SELECT 
+    cl.name AS club_name, 
+    ul.user_id,
+    ul.phone,
+    ul.age,
+    ul.email,
+    ul.sex,
+    ul.sport_experience,
+    ul.age_category,
+    count(ul.user_id) OVER () AS users_total,
+    count(ul.sport_experience) OVER () AS users_total_experience,
+    sum(sport_experience_groups) OVER () AS sport_experience_groups,
+    CASE 
+        WHEN upp.payment_plan_id IN (19, 20, 242, 244) THEN 'Light'
+        WHEN upp.payment_plan_id IN (21, 22, 243, 245) THEN 'Smart'
+        WHEN upp.payment_plan_id IN (18, 28, 118, 162, 49, 92, 241, 246) THEN 'Infinity'
+        WHEN upp.payment_plan_id = 135 THEN 'AllRide'
+    END AS plan_group,
+    CASE 
+        WHEN ul.sport_experience = 'Нет опыта' THEN 1
+        WHEN ul.sport_experience = '0-6 месяцев' THEN 2
+        WHEN ul.sport_experience = '6-12 месяцев' THEN 3
+        WHEN ul.sport_experience = '1-2 года' THEN 4
+        WHEN ul.sport_experience = '2-3 года' THEN 5
+        WHEN ul.sport_experience = '3-5 лет' THEN 6
+        WHEN ul.sport_experience = 'Больше 5 лет' THEN 7
+        ELSE 100
+    END AS sport_experience_sort
+FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+JOIN users_list ul ON ul.user_id = upp.user_id
+WHERE upp.status IN ('Current', 'Freezed', 'NotStarted', 'PaymentPending') 
+  AND upp.payment_plan_id IN (
+        10, 18, 19, 20, 21, 22, 28, 35, 45, 46, 49, 70, 71, 73, 74, 76, 92, 93, 118, 135, 140, 162,
+        241, 242, 243, 244, 245, 246
+  )
+  AND upp.status NOT IN ('Created', 'Deleted')
+  AND cl.name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+  AND coalesce(cancel_reason, '') <> 'ExcludeFromReport'
+ORDER BY 1;
