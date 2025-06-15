@@ -1,0 +1,30 @@
+WITH main_table AS (
+    SELECT 
+        tf.card_id AS card_id,
+        tf.created_at AS created_at,
+        t.created_at AS created_transactions,
+        tp.id AS provider_id,
+        CASE 
+            WHEN tp.name = 'subscription payment with gift card' THEN 'оплата подписки + подарочная карта'
+            WHEN tp.name = 'subscription registration with gift card' THEN 'оформление подписки + подарочная карта'
+            WHEN tp.name = 'card freez purchase with gift card' THEN 'покупка заморозки + подарочная карта'
+            WHEN tp.name = 'deposit replenishment with gift card' THEN 'пополнение депозита с подарочной карты'
+            WHEN tp.name = 'subscription deposit payment with gift card' THEN 'оплата подписки за счет депозита + подарочная карта'
+            WHEN tp.name = 'subscription deposit registration with gift card' THEN 'оформление подписки за счет депозита + подарочная карта'
+            WHEN tp.name = 'change club with deposit with gift card' THEN 'смена клуба + подарочная карта'
+        END AS name
+    FROM ddxfitness_prod_v2.pg_gift_card_using tf
+    LEFT JOIN ddxfitness_prod_v2.pg_gift_cards s ON tf.card_id = s.id
+    LEFT JOIN ddxfitness_prod_v2.pg_transactions t ON tf.transaction_id = t.id
+    LEFT JOIN ddxfitness_prod_v2.pg_transaction_providers tp ON t.provider_id = tp.id
+    WHERE s.state = 'closed' AND tf.status = 'completed'
+)
+SELECT * FROM main_table
+-- Можно раскомментировать следующие строки для расчета отдельных категорий:
+-- , case when name = 'оплата подписки + подарочная карта' then 1 else 0 end as "оплата подписки + подарочная карта"
+-- , case when name = 'оформление подписки + подарочная карта' then 1 else 0 end as "оформление подписки + подарочная карта"
+-- , case when name = 'покупка заморозки + подарочная карта' then 1 else 0 end as "покупка заморозки + подарочная карта"
+-- , case when name = 'пополнение депозита с подарочной карты' then 1 else 0 end as "пополнение депозита с подарочной карты"
+-- , case when name = 'оплата подписки за счет депозита + подарочная карта' then 1 else 0 end as "оплата подписки за счет депозита + подарочная карта"
+-- , case when name = 'оформление подписки за счет депозита + подарочная карта' then 1 else 0 end as "оформление подписки за счет депозита + подарочная карта"
+-- , case when name = 'смена клуба + подарочная карта' then 1 else 0 end as "смена клуба + подарочная карта"
