@@ -1,0 +1,4 @@
+select count(distinct employee_id) from 
+ddxfitness_prod_v2.pg_positions p 
+where name = 'Координатор ГП'
+and is_deleted = false
