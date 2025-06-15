@@ -1,0 +1,18 @@
+SELECT 
+    date, 
+    club_name, 
+    cancel_reason, 
+    MIN(total) AS total_by_reason, 
+    MIN(total_by_club) AS total_by_club
+FROM (
+    SELECT 
+        last_id AS payment_plan_id,
+        outflow_club_name AS club_name,
+        end_date AS date,
+        cancel_reason,
+        COUNT(*) OVER (PARTITION BY outflow_club_name, cancel_reason, end_date) AS total,
+        COUNT(*) OVER (PARTITION BY outflow_club_name, end_date) AS total_by_club 
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new iao 
+    WHERE is_outflow = 1
+) t
+GROUP BY 1, 2, 3;
