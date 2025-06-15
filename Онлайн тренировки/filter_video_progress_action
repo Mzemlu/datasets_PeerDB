@@ -1,0 +1,3 @@
+select 'Программа' type_video
+union all
+select 'Каталог'
