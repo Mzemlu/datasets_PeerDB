@@ -1,0 +1,30 @@
+WITH empl_list AS (
+    SELECT user_id 
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+    WHERE payment_plan_id IN (1, 152, 208) AND status = 'Current'
+
+    UNION ALL
+
+    SELECT user_id  
+    FROM ddxfitness_prod_v2.pg_employees e2 
+    WHERE is_active = 1
+),
+
+active_trials AS (
+    SELECT 
+        id, 
+        upp.user_id, 
+        CASE 
+            WHEN e.user_id IS NULL THEN 'Клиент' 
+            ELSE 'Сотрудник' 
+        END AS if_employee,
+        club_id, 
+        (signed_date + INTERVAL '3' HOUR)::date AS date, 
+        toStartOfMonth(today()) AS month
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+    LEFT JOIN empl_list e ON upp.user_id = e.user_id
+    WHERE payment_plan_id = 207 AND status = 'Current'
+)
+
+SELECT * 
+FROM active_trials;
