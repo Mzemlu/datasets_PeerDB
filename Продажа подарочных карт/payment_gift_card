@@ -1,0 +1,7 @@
+SELECT 
+    created_at,
+    total_amount
+FROM ddxfitness_prod_v2.pg_transactions t 
+WHERE provider_id IN (24, 25) 
+  AND type = 'payment' 
+  AND status = 'completed';
