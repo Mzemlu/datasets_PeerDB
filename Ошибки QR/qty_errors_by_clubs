@@ -1,0 +1,122 @@
+WITH list_qr AS (
+    SELECT * 
+    FROM (
+        SELECT 
+            event_date, 
+            sys_response,
+            user_id, 
+            club_name,
+            is_success, 
+            event_type, 
+            club_name
+        FROM ddxfitness_prod_v2.bi_swipe_history bsh 
+        WHERE toDate(event_date) >= '2024-01-01'
+    )
+    WHERE event_type = 'qr_check' AND user_id <> 0
+)
+
+SELECT 'Всего успешных' AS title,
+       event_date::date AS event_date, 
+       club_name,
+       count(DISTINCT user_id) AS num_users,
+       count(user_id) AS num_errors
+FROM list_qr
+WHERE is_success = true 
+-- AND event_date::date = '2024-01-15'
+GROUP BY 1, 2, 3
+
+UNION ALL
+
+SELECT 'Всего ошибок' AS title,
+       event_date::date AS event_date, 
+       club_name,
+       count(DISTINCT user_id) AS num_users,
+       count(user_id) AS num_errors 
+FROM list_qr 
+WHERE is_success = false  
+-- AND event_date::date = '2024-01-15'
+GROUP BY 1, 2, 3
+
+UNION ALL
+
+SELECT 'expired qr' AS title,
+       event_date::date AS event_date, 
+       club_name,
+       count(DISTINCT user_id) AS num_users,
+       count(user_id) AS num_errors 
+FROM list_qr 
+WHERE sys_response = 'expired qr'
+-- AND event_date::date = '2024-01-15'
+GROUP BY 1, 2, 3
+
+UNION ALL
+
+SELECT 'invalid token' AS title,
+       event_date::date AS event_date, 
+       club_name,
+       count(DISTINCT user_id) AS num_users,
+       count(user_id) AS num_errors 
+FROM list_qr 
+WHERE sys_response = 'invalid token'
+-- AND event_date::date = '2024-01-15'
+GROUP BY 1, 2, 3
+
+UNION ALL
+
+SELECT 'user token not found' AS title,
+       event_date::date AS event_date, 
+       club_name,
+       count(DISTINCT user_id) AS num_users,
+       count(user_id) AS num_errors 
+FROM list_qr 
+WHERE sys_response = 'user qr_token not found'
+-- AND event_date::date = '2024-01-15'
+GROUP BY 1, 2, 3
+
+UNION ALL
+
+SELECT 'invalid qr data' AS title,
+       event_date::date AS event_date, 
+       club_name,
+       count(DISTINCT user_id) AS num_users,
+       count(user_id) AS num_errors 
+FROM list_qr 
+WHERE sys_response = 'invalid qr data'
+-- AND event_date::date = '2024-01-15'
+GROUP BY 1, 2, 3
+
+UNION ALL
+
+SELECT 'invalid prefix' AS title,
+       event_date::date AS event_date, 
+       club_name,
+       count(DISTINCT user_id) AS num_users,
+       count(user_id) AS num_errors 
+FROM list_qr 
+WHERE sys_response = 'invalid prefix'
+-- AND event_date::date = '2024-01-15'
+GROUP BY 1, 2, 3
+
+UNION ALL
+
+SELECT 'invalid timestamp' AS title,
+       event_date::date AS event_date, 
+       club_name,
+       count(DISTINCT user_id) AS num_users,
+       count(user_id) AS num_errors 
+FROM list_qr 
+WHERE sys_response = 'invalid timestamp'
+-- AND event_date::date = '2024-01-15'
+GROUP BY 1, 2, 3
+
+UNION ALL
+
+SELECT 'missing client_id' AS title,
+       event_date::date AS event_date, 
+       club_name,
+       count(DISTINCT user_id) AS num_users,
+       count(user_id) AS num_errors 
+FROM list_qr 
+WHERE sys_response = 'missing client_id'
+-- AND event_date::date = '2024-01-15'
+GROUP BY 1, 2, 3;
