@@ -1,0 +1,21 @@
+SELECT
+    uf.id,
+    upperUTF8(formatDateTime(uf.start_date, '%b-%Y')) AS freeze_date_month,
+    toStartOfMonth(uf.start_date) AS freeze_date,
+    c.name AS club_name,
+    pp.name AS payment_plan,
+    uf.status AS status_freeze,
+    upp.payment_plan_id AS pp_id,
+    tp.product_name AS product_name,
+    p.category
+FROM ddxfitness_prod_v2.pg_user_freezes uf
+LEFT JOIN ddxfitness_prod_v2.pg_transactions t ON t.id = uf.transaction_id
+LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = uf.user_payment_plan_id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = upp.club_id
+LEFT JOIN ddxfitness_prod_v2.pg_transaction_products tp ON tp.transaction_id = t.id
+LEFT JOIN ddxfitness_prod_v2.pg_products p ON tp.product_id = p.id
+LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+WHERE p.category = 'freeze'
+-- AND status_freeze IN ({{ "'" + "', '".join(filter_values('status_freeze')) + "'" }})
+-- AND club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+;
