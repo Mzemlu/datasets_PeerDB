@@ -1,0 +1,117 @@
+WITH empl_list AS (
+    SELECT user_id
+    FROM (
+        SELECT user_id
+        FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+        WHERE payment_plan_id IN (1,152,208)
+          AND status IN ('Current', 'PaymentPending', 'Freezed', 'NotStarted')
+        UNION ALL 
+        SELECT user_id
+        FROM ddxfitness_prod_v2.pg_employees e2
+        WHERE is_active = 1
+    )
+    GROUP BY user_id
+),
+
+action_users AS (
+    SELECT 
+        day_id_day, 
+        id, 
+        payment_plan_id,
+        user_id, 
+        updated_at, 
+        status
+    FROM ddxfitness_prod_v2.user_payment_plans_by_day uppbd 
+    WHERE payment_plan_id IN (205,206) 
+      AND status IN ('Current', 'PaymentPending', 'Freezed', 'NotStarted')
+),
+
+dates AS (
+    SELECT day_id_day 
+    FROM ddxfitness_prod_v2.d_day dd 
+    WHERE day_id_day >= '2024-05-27' AND day_id_day <= today()
+),
+
+dates_watching AS (
+    SELECT 
+        CASE 
+            WHEN day_id_day <= plus30_date AND day_id_day >= updated_at THEN 1 
+            ELSE 0 
+        END AS flag,  
+        day_id_day, 
+        user_id
+    FROM dates t1
+    CROSS JOIN (
+        SELECT 
+            user_id, 
+            updated_at, 
+            updated_at + INTERVAL '30' DAY AS plus30_date
+        FROM ddxfitness_prod_v2.bi_video_progress_action 
+        GROUP BY user_id, updated_at
+    ) t2
+    WHERE flag = 1
+    GROUP BY flag, day_id_day, user_id
+)
+
+SELECT 
+    f.day_id_day AS date,
+    upperUTF8(formatDateTime(f.day_id_day, '%b-%Y')) AS month_year,
+    CASE
+        WHEN (f.payment_plan_id = 208 OR e.user_id IS NOT NULL) THEN 'Сотрудник'
+        WHEN e.user_id IS NULL THEN 'Клиент'
+    END AS if_employee,
+    f.id AS id,
+    f.user_id AS user_id,
+    f.status AS status,
+    bau.payment_plan,
+    CASE 
+        WHEN f.day_id_day = toLastDayOfMonth(f.day_id_day) OR f.day_id_day = today() THEN 1 
+        ELSE 0 
+    END AS last_day_of_month,
+    CASE 
+        WHEN bau.user_payment_plan_id = 0 THEN 'не оплачен' 
+        ELSE 'оплачен' 
+    END AS if_payed,
+    CASE 
+        WHEN bau.discount_name = '' THEN '-' 
+        ELSE bau.discount_name 
+    END AS discount_name,
+    bau.gate_name,
+    bau.is_banner_user,
+    bau.is_trial_user,
+    bau.is_tracker_user,
+    bau.discount_name_main,
+    CASE 
+        WHEN bvp.day_id_day = '1970-01-01' THEN 0 
+        ELSE 1 
+    END AS active_user_day,
+    qty_payments
+FROM action_users f
+LEFT JOIN empl_list e 
+    ON f.user_id = e.user_id
+LEFT JOIN (
+    SELECT 
+        user_payment_plan_id,
+        discount_name, 
+        payment_plan, 
+        gate_name, 
+        is_banner_user, 
+        discount_name_main,
+        is_trial_user,
+        is_tracker_user
+    FROM ddxfitness_prod_v2.bi_action_users 
+    WHERE payment_type = 'new'
+) bau
+    ON f.id = bau.user_payment_plan_id
+LEFT JOIN (
+    SELECT 
+        user_payment_plan_id,
+        COUNT(*) AS qty_payments
+    FROM ddxfitness_prod_v2.bi_action_users 
+    GROUP BY user_payment_plan_id
+) bau2
+    ON f.id = bau2.user_payment_plan_id
+LEFT JOIN dates_watching bvp
+    ON f.user_id = bvp.user_id 
+   AND f.day_id_day = bvp.day_id_day
+WHERE 1 = 1;
