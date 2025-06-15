@@ -20,7 +20,6 @@ WITH main_table AS (
     WHERE s.state = 'closed' AND tf.status = 'completed'
 )
 SELECT * FROM main_table
--- Можно раскомментировать следующие строки для расчета отдельных категорий:
 -- , case when name = 'оплата подписки + подарочная карта' then 1 else 0 end as "оплата подписки + подарочная карта"
 -- , case when name = 'оформление подписки + подарочная карта' then 1 else 0 end as "оформление подписки + подарочная карта"
 -- , case when name = 'покупка заморозки + подарочная карта' then 1 else 0 end as "покупка заморозки + подарочная карта"
