@@ -1,0 +1,90 @@
+WITH freezes AS (
+    SELECT *
+    FROM (
+        SELECT 
+            CASE
+                WHEN uf.is_technical = 1 THEN 'Техническая'
+                WHEN uf.source IN ('mobile_app_avi', 'mobile_app') THEN 'Клиент из мобильного приложения'
+                WHEN uf.source = 'crm' AND t.employee_id IN (
+                    3344, 2386, 2397, 3286, 2803, 2338, 3343, 2026, 3492, 3496, 3517, 3536
+                ) THEN 'Пролонгация'
+                WHEN uf.source = 'crm' THEN 'СМ'
+                ELSE '0'
+            END AS apply_type,
+            upperUTF8(formatDateTime(uf.start_date, '%b-%Y')) AS freeze_date,
+            toDate(uf.start_date) AS start_date,
+            c.name AS club_name,
+            pp.name AS payment_plan,
+            toUInt64(t.id) AS t_id,
+            toUInt64(t.user_id) AS user_id,
+            toUInt64(upp.payment_plan_id) AS pp_id,
+            ifNull(u.sex, 'не указан') AS sex,
+            if(up.refunded_transaction_id IS NULL, toUInt64(0), toUInt64(up.refunded_transaction_id)) AS refunded_transaction_id
+        FROM ddxfitness_prod_v2.pg_user_freezes uf
+        LEFT JOIN ddxfitness_prod_v2.pg_transactions t ON t.id = uf.transaction_id
+        LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = uf.user_payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = upp.club_id
+        LEFT JOIN ddxfitness_prod_v2.pg_transaction_gates tg ON tg.id = t.gate_id
+        LEFT JOIN ddxfitness_prod_v2.pg_transaction_products tp ON tp.transaction_id = t.id
+        LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_employees e ON e.id = t.employee_id
+        LEFT JOIN ddxfitness_prod_v2.pg_users u ON u.id = upp.user_id
+        LEFT JOIN (
+            SELECT 
+                transaction_id,
+                refunded_transaction_id
+            FROM ddxfitness_prod_v2.pg_user_purchases
+            WHERE refunded_transaction_id IS NOT NULL
+            GROUP BY transaction_id, refunded_transaction_id
+        ) up ON up.transaction_id = uf.transaction_id
+        WHERE toDate(uf.start_date + INTERVAL 3 HOUR) >= '2023-01-01'
+          AND uf.status NOT IN ('PaymentFailed', 'PaymentPending')
+          AND t.status = 'completed'
+    ) t
+    WHERE refunded_transaction_id = 0
+
+    UNION ALL
+
+    SELECT 
+        'Техническая' AS apply_type,
+        upperUTF8(formatDateTime(uf.start_date, '%b-%Y')) AS freeze_date,
+        toDate(uf.start_date) AS start_date,
+        c.name AS club_name,
+        pp.name AS payment_plan,
+        toUInt64(uf.id) AS t_id,
+        toUInt64(upp.user_id) AS user_id,
+        toUInt64(upp.payment_plan_id) AS pp_id,
+        ifNull(u.sex, 'не указан') AS sex,
+        toUInt64(0) AS refunded_transaction_id
+    FROM ddxfitness_prod_v2.pg_user_freezes uf
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = uf.user_payment_plan_id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = upp.club_id
+    LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+    LEFT JOIN ddxfitness_prod_v2.pg_users u ON u.id = upp.user_id
+    WHERE toDate(uf.start_date + INTERVAL 3 HOUR) >= '2022-01-01'
+      AND toDate(uf.start_date + INTERVAL 3 HOUR) < '2023-01-01'
+      AND uf.status NOT IN ('PaymentFailed', 'PaymentPending')
+),
+
+aggregated_freezes AS (
+    SELECT 
+        freeze_date, 
+        user_id, 
+        sex,
+        payment_plan,
+        club_name, 
+        COUNT(DISTINCT t_id) AS num_freezes 
+    FROM freezes
+    GROUP BY freeze_date, user_id, sex, payment_plan, club_name
+)
+
+SELECT 
+    user_id,
+    sex,
+    payment_plan,
+    freeze_date AS date_month_for_filter,
+    club_name,
+    IF(num_freezes > 1, 1, 0) AS many_freezes,
+    IF(num_freezes = 1, 1, 0) AS one_freezes,
+    num_freezes
+FROM aggregated_freezes;
