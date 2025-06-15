@@ -1,0 +1,15 @@
+SELECT
+    s.name,
+    s.club_type,
+    countIf(upp.status = 'Freezed') AS freeze_count,
+    count(*) AS total_count,
+    countIf(upp.status = 'Freezed') / count(*) AS freeze_share
+FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+LEFT JOIN ddxfitness_prod_v2.pg_clubs s ON upp.club_id = s.id
+WHERE payment_plan_id IN (
+    SELECT id FROM ddxfitness_prod_v2.d_inflow_payment_plans
+)
+AND status NOT IN ['Ended', 'Created', 'Deleted', 'Refunded']
+GROUP BY
+    s.name,
+    s.club_type;
