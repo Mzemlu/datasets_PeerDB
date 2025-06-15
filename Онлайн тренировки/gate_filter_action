@@ -1,0 +1,1 @@
+SELECT distinct gate_name from ddxfitness_prod_v2.bi_action_users;
