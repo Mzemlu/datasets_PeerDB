@@ -1,0 +1,19 @@
+-- Отток
+SELECT 
+    user_id, 
+    last_id, 
+    last_payment_plan_id AS payment_plan_id,  
+    last_payment_plan_name AS payment_plan_name, 
+    outflow_club_name AS club_name, 
+    cancel_reason, 
+    end_date,
+    count(*) OVER (PARTITION BY toStartOfMonth(end_date)) AS total_qty_by_month,
+    count(*) OVER (PARTITION BY end_date) AS total_qty_by_date,
+    count(*) OVER (PARTITION BY club_name) AS total_qty_by_club,
+    sum(CASE WHEN payment_plan_id IN (18, 22) THEN 1 ELSE 0 END) OVER (PARTITION BY end_date) AS main_plans_qty,
+    sum(CASE WHEN payment_plan_id IN (18, 22) THEN 1 ELSE 0 END) OVER (PARTITION BY club_name, end_date) AS main_plans_by_club_qty
+FROM ddxfitness_prod_v2.inflow_and_outflow_new
+WHERE 1 = 1
+-- AND club_name IN ('DDX Аэропорт', 'DDX Беляево') -- нужен динамический фильтр по клубу, чтобы был правильный расчет тотала.
+  AND end_date >= '2025-03-25'  -- дата изменения цены
+  AND payment_plan_id IN (18, 22);
