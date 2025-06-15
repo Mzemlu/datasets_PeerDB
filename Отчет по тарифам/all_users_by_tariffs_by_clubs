@@ -1,0 +1,24 @@
+SELECT 
+    cl.name AS club_name,
+    upp.status AS payment_status,
+    count(*) AS cnt_total,
+    countIf(upp.payment_plan_id IN (18, 241)) AS inf_1_month,
+    countIf(upp.payment_plan_id IN (18, 241)) / count(*) AS ratio_inf_1_month,
+    countIf(upp.payment_plan_id = 49) AS inf_regular,
+    countIf(upp.payment_plan_id = 49) / count(*) AS ratio_inf_regular,
+    countIf(upp.payment_plan_id IN (20, 242, 278)) AS light_1_month,
+    countIf(upp.payment_plan_id IN (20, 242, 278)) / count(*) AS ratio_light_1_month,
+    countIf(upp.payment_plan_id IN (22, 243, 277)) AS smart_1_month,
+    countIf(upp.payment_plan_id IN (22, 243, 277)) / count(*) AS ratio_smart_1_month,
+    countIf(upp.payment_plan_id NOT IN (18, 49, 20, 22, 241, 242, 243, 277, 278)) AS other,
+    countIf(upp.payment_plan_id NOT IN (18, 49, 20, 22, 241, 242, 243, 277, 278)) / count(*) AS ratio_other
+FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+WHERE upp.payment_plan_id IN (
+    SELECT id FROM ddxfitness_prod_v2.d_inflow_payment_plans
+)
+-- AND status NOT IN ['Ended','Created','Deleted','Refunded']
+AND upp.status IN ({{ "'" + "', '".join(filter_values('payment_status')) + "'" }})
+AND coalesce(cancel_reason, '') <> 'ExcludeFromReport'
+GROUP BY club_name, payment_status;
