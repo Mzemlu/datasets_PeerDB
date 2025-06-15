@@ -1,0 +1,66 @@
+WITH action_users AS (
+    SELECT 
+        transaction_date::date AS date, 
+        if_employee, 
+        user_id, 
+        payment_plan
+    FROM ddxfitness_prod_v2.bi_action_users bau 
+    WHERE payment_type = 'new' 
+      AND (end_date < today() OR end_date IS NOT NULL)
+      AND if_employee = 'Клиент'
+      {% if filter_values('payment_plan') %} 
+      AND payment_plan IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+      {% endif %}
+      {% if filter_values('discount_name_main') %} 
+      AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_banner_user') %} 
+      AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('gate_name') %} 
+      AND gate_name IN ({{ "'" + "', '".join(filter_values('gate_name')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_trial_user') %} 
+      AND is_trial_user IN ({{ "'" + "', '".join(filter_values('is_trial_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_tracker_user') %} 
+      AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+      {% endif %}
+),
+
+main_plan_users AS (
+    SELECT 
+        day_id_day, 
+        user_id, 
+        id 
+    FROM ddxfitness_prod_v2.user_payment_plans_by_day uppbd 
+    WHERE payment_plan_id NOT IN (205, 206)
+      AND user_id IN (
+          SELECT user_id FROM ddxfitness_prod_v2.bi_action_users GROUP BY user_id
+      )
+      AND status IN ('Current', 'PaymentPending', 'NotStarted', 'Freezed')
+),
+
+qty_action_plans AS (
+    SELECT 
+        user_id, 
+        count(DISTINCT user_payment_plan_id) AS qty_plans
+    FROM ddxfitness_prod_v2.bi_action_users 
+    GROUP BY user_id
+)
+
+SELECT 
+    au.date, 
+    au.if_employee, 
+    au.user_id, 
+    au.payment_plan, 
+    mu.id AS main_plan_id, 
+    upp.status, 
+    qp.qty_plans 
+FROM action_users au 
+LEFT JOIN main_plan_users mu 
+    ON au.user_id = mu.user_id AND au.date = mu.day_id_day
+LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp 
+    ON mu.id = upp.id
+LEFT JOIN qty_action_plans qp 
+    ON au.user_id = qp.user_id;
