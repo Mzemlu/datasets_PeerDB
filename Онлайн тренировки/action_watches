@@ -1,0 +1,12 @@
+SELECT id, 
+        user_id, 
+        updated_at, 
+        discount_name, 
+        if_employee,
+        is_banner_user,
+        discount_name_main,
+        is_trial_user, 
+        is_tracker_user,
+        gate_name
+FROM ddxfitness_prod_v2.bi_video_progress_action
+;
