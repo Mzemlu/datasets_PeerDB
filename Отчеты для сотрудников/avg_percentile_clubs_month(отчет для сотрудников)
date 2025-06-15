@@ -1,0 +1,20 @@
+SELECT 
+    c.name AS club_name,
+    upper(formatDateTime(tr.updated_at, '%b-%Y')) AS date_month_for_filter,
+    median(tr.join_fee) AS percentile,
+    round(avg(tr.join_fee)) AS avg,
+    count(*) AS count
+FROM ddxfitness_prod_v2.bi_completed_transactions tr 
+LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos cli ON tr.club_legal_info_id = cli.id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = cli.club_id
+LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = tr.user_payment_plan_id
+WHERE tr.provider_id IN (6, 26, 27)
+-- AND tr.join_fee > 0
+AND tr.created_at >= '2022-12-11T21:13:32'
+AND tr.type = 'payment'
+-- AND tr.total_amount = tr.join_fee + tr.membership_fee
+-- AND tr.club_legal_info_id IS NULL
+AND upp.payment_plan_id IN (
+    SELECT id FROM ddxfitness_prod_v2.d_inflow_payment_plans
+)
+GROUP BY 1, 2;
