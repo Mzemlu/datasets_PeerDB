@@ -1,0 +1,7 @@
+WITH day_of_month AS (
+    SELECT * 
+    FROM generate_series('2022-01-01 00:00'::timestamp, '2022-01-31 00:00', '1 day')
+)
+SELECT 
+    to_char(generate_series, 'dd') AS filter_days
+FROM day_of_month;
