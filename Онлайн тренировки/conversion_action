@@ -1,0 +1,100 @@
+WITH pay_users AS (
+    SELECT 
+        upperUTF8(formatDateTime(start_date, '%b-%Y')) AS start_date, 
+        rn, 
+        count(user_id) AS qty_users_payed 
+    FROM (
+        SELECT 
+            user_id,
+            min(transaction_date::date) OVER (PARTITION BY user_id, user_payment_plan_id) AS start_date, 
+            row_number() OVER (PARTITION BY user_id, user_payment_plan_id ORDER BY transaction_id) AS rn
+        FROM ddxfitness_prod_v2.bi_action_users 
+        WHERE 1=1
+          AND user_payment_plan_id IN (
+              SELECT user_payment_plan_id 
+              FROM ddxfitness_prod_v2.bi_action_users bau 
+              WHERE 1=1                   
+                {% if filter_values('discount_name_main') %} 
+                AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+                {% endif %}
+                {% if filter_values('is_trial_user') %} 
+                AND is_trial_user IN ({{ "'" + "', '".join(filter_values('is_trial_user')) + "'" }})
+                {% endif %}
+                {% if filter_values('gate_name') %} 
+                AND gate_name IN ({{ "'" + "', '".join(filter_values('gate_name')) + "'" }})
+                {% endif %}
+                {% if filter_values('payment_plan') %} 
+                AND payment_plan IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+                {% endif %}
+                {% if filter_values('is_tracker_user') %} 
+                AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+                {% endif %}
+                AND if_employee = 'Клиент' 
+                AND type = 'payment'
+                AND current_status <> 'Refunded'
+          )
+    ) 
+    WHERE rn > 1
+    GROUP BY 1, 2
+),
+
+inflow_total AS (
+    SELECT 
+        upperUTF8(formatDateTime(transaction_date, '%b-%Y')) AS start_date, 
+        toStartOfMonth(transaction_date) AS month,
+        count(*) AS qty_users
+    FROM ddxfitness_prod_v2.bi_action_users 
+    WHERE 1=1
+      AND payment_type = 'new'
+      AND if_employee = 'Клиент' 
+      AND type = 'payment'
+      AND current_status <> 'Refunded'
+      AND user_payment_plan_id IN (
+          SELECT user_payment_plan_id 
+          FROM ddxfitness_prod_v2.bi_action_users bau 
+          WHERE 1=1                 
+            {% if filter_values('discount_name_main') %} 
+            AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+            {% endif %}
+            {% if filter_values('is_trial_user') %} 
+            AND is_trial_user IN ({{ "'" + "', '".join(filter_values('is_trial_user')) + "'" }})
+            {% endif %}
+            {% if filter_values('gate_name') %} 
+            AND gate_name IN ({{ "'" + "', '".join(filter_values('gate_name')) + "'" }})
+            {% endif %}
+            {% if filter_values('payment_plan') %} 
+            AND payment_plan IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+            {% endif %}
+            {% if filter_values('is_tracker_user') %} 
+            AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+            {% endif %}
+            AND if_employee = 'Клиент' 
+            AND type = 'payment' 
+            AND payment_type = 'new' 
+            AND current_status <> 'Refunded'
+      )
+    GROUP BY 1, 2
+), 
+
+group_inflow_outflow AS (
+    SELECT 
+        i.start_date, 
+        i.month, 
+        p.rn, 
+        min(i.qty_users) AS qty_users_start, 
+        sum(p.qty_users_payed) AS qty_users_payed
+    FROM inflow_total i 
+    LEFT JOIN pay_users p ON i.start_date = p.start_date
+    GROUP BY 1, 2, 3
+)
+
+SELECT 
+    start_date, 
+    month, 
+    rn, 
+    qty_users_start, 
+    qty_users_payed,
+    lagInFrame(qty_users_payed) OVER (PARTITION BY start_date ORDER BY rn ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS prev_qty
+FROM group_inflow_outflow
+WHERE 1=1
+ORDER BY 1, 2, 3, 4, 5;
