@@ -1,0 +1,13 @@
+SELECT
+    countIf(cnt >= 2) / count(*) AS percent_of_repeated_buyers
+FROM
+(
+    SELECT
+        user_id,
+        count(*) AS cnt
+    FROM ddxfitness_prod_v2.pg_transactions
+    WHERE provider_id IN (24, 25) 
+      AND type = 'payment' 
+      AND status = 'completed'
+    GROUP BY user_id
+) AS t;
