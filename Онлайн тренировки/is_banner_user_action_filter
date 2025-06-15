@@ -1,0 +1,3 @@
+select 'Перешел по баннеру' is_banner_user
+UNION ALL
+SELECT 'Не переходил'
