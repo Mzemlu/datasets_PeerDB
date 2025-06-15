@@ -1,0 +1,3 @@
+select 'Был триал' is_trial_user
+union all
+select 'Не было триала'
