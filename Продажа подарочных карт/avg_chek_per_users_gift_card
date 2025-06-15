@@ -1,0 +1,42 @@
+WITH sale_gift_card AS (
+    SELECT 
+        id,
+        nominal,
+        balance,
+        transaction_id,
+        from_user_id,
+        to_user_id,
+        state,
+        created_at,
+        updated_at
+    FROM ddxfitness_prod_v2.pg_gift_cards
+    WHERE toDate(created_at) >= '2024-12-09'
+),
+city_user AS (
+    SELECT 
+        EventDate AS event_date,
+        City AS city,
+        toInt64OrZero(JSONExtractString(EventParameters, 'user_id')) AS user_id 
+    FROM mobile_db.events_all
+    WHERE EventName = 'gift_card_buy_success'
+    GROUP BY event_date, city, user_id
+)
+SELECT 
+    d.id,
+    d.nominal,
+    d.balance,
+    d.transaction_id,
+    d.from_user_id,
+    d.to_user_id,
+    d.state,
+    d.created_at,
+    d.updated_at,
+    ur.event_date,
+    CASE 
+        WHEN ur.city = '' THEN 'неизвестно' 
+        ELSE ur.city 
+    END AS city,
+    ur.user_id 
+FROM sale_gift_card d
+LEFT JOIN city_user ur 
+    ON d.from_user_id = ur.user_id AND toDate(d.created_at) = ur.event_date;
