@@ -1,0 +1,1 @@
+select (max(`timestamp`) )::`timestamp`  date from datamv_logs dl where message like '%bitrixurdeal data move success%'
