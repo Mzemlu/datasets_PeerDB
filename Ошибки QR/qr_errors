@@ -1,0 +1,57 @@
+WITH list_qr AS (
+    SELECT 
+        event_date, 
+        sys_response,
+        user_id, 
+        club_name,
+        is_success, 
+        event_type, 
+        club_name
+    FROM ddxfitness_prod_v2.bi_swipe_history bsh 
+    WHERE (event_date) >= '{{from_dttm}}'
+      AND (event_date) < '{{to_dttm}}'
+      AND event_type = 'qr_check' 
+      AND club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+),
+
+list_errors AS (
+    SELECT 
+        user_id,
+        CASE  
+            WHEN sys_response = 'user qr_token not found' THEN 'user token not found'
+            WHEN is_success = true THEN 'Успешные'
+            WHEN sys_response = 'expired qr' THEN 'expired qr'
+            WHEN sys_response = 'invalid token' THEN 'invalid token'
+            WHEN sys_response = 'user token not found' THEN 'user token not found'
+            WHEN sys_response = 'invalid qr data' THEN 'invalid qr data'
+            WHEN sys_response = 'invalid prefix' THEN 'invalid prefix'
+            WHEN sys_response = 'invalid timestamp' THEN 'invalid timestamp'
+            WHEN sys_response = 'missing client_id' THEN 'missing client_id'
+            ELSE 'Остальное' 
+        END AS status 
+    FROM list_qr
+),
+
+grouped_list AS (
+    SELECT 
+        t1.status, 
+        count(DISTINCT t1.user_id) AS num_users, 
+        count(*) AS num_errors 
+    FROM list_errors t1
+    GROUP BY 1
+)
+
+SELECT 
+    t1.status AS title, 
+    t1.num_users AS num_users, 
+    t1.num_errors AS num_errors, 
+    t2.num_users AS num_success_users, 
+    t2.num_errors AS num_success  
+FROM grouped_list t1
+CROSS JOIN (
+    SELECT 
+        num_users, 
+        num_errors 
+    FROM grouped_list 
+    WHERE status = 'Успешные'
+) t2;
