@@ -1,0 +1,31 @@
+WITH revenue1 AS (
+    SELECT 
+        upper(formatDateTime(tr.updated_at, '%b-%Y')) AS date_month_for_filter,
+        tr.user_id AS user_id,
+        tp.name AS desc,
+        CASE 
+            WHEN c1.name = '' THEN c2.name 
+            ELSE c1.name 
+        END AS club_name,
+        tr.total_amount
+    FROM ddxfitness_prod_v2.bi_completed_transactions tr
+    LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos cli ON tr.club_legal_info_id = cli.id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c1 ON cli.club_id = c1.id
+    JOIN ddxfitness_prod_v2.pg_transaction_providers tp ON tp.id = tr.provider_id
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = tr.user_payment_plan_id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c2 ON c2.id = upp.club_id
+    WHERE tr.type = 'payment'
+      AND tr.provider_id IN (1,2,3,6,7,9,13,16,20,22,23,24,25,26,27,28,29,30,31,34,37,38)
+)
+
+SELECT 
+    rvn.date_month_for_filter AS date_month_for_filter,
+    CASE 
+        WHEN rvn.club_name = '' THEN cl.name 
+        ELSE rvn.club_name 
+    END AS club_name,
+    sum(rvn.total_amount) AS total
+FROM revenue1 rvn
+JOIN ddxfitness_prod_v2.pg_users u1 ON u1.id = rvn.user_id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = u1.home_club_id
+GROUP BY 1, 2;
