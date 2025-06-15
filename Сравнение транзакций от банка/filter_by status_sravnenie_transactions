@@ -1,0 +1,3 @@
+select 'Одобрено' as status
+union all
+select 'Не одобрено' as status
