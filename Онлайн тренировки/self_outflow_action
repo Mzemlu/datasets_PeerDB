@@ -1,0 +1,35 @@
+SELECT 
+    cancel_reason, 
+    end_date, 
+    transaction_date, 
+    cancel_date, 
+    CASE 
+        WHEN date_diff(day, transaction_date, cancel_date) <= 30 
+        THEN date_diff(day, transaction_date, cancel_date) 
+        ELSE toInt16(round((date_diff(day, transaction_date, cancel_date)) / 30, 0)) 
+    END AS date_diff,
+    date_diff(day, transaction_date, video_date) AS date_diff_view,  -- через сколько после транзакции юзер посмотрел видео
+    if_employee, 
+    user_id, 
+    payment_plan, 
+    payment_type,
+    gate_name, 
+    sum_views,
+    video_date,
+    is_banner_user,
+    discount_name_main
+FROM ddxfitness_prod_v2.bi_action_users bau
+LEFT JOIN (
+    SELECT 
+        user_id, 
+        min(updated_at) AS video_date, 
+        count(*) AS sum_views 
+    FROM ddxfitness_prod_v2.bi_video_progress_action 
+    GROUP BY user_id
+) bvpa 
+    ON bau.user_id = bvpa.user_id 
+WHERE 1 = 1
+-- AND cancel_date >= '{{from_dttm}}'
+-- AND cancel_date < '{{to_dttm}}'
+  AND if_employee = 'Клиент'
+  AND payment_type = 'new';
