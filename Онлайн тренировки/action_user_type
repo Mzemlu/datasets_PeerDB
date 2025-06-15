@@ -1,0 +1,100 @@
+WITH bigtable AS (
+    SELECT 
+        main.user_id,
+        main.if_employee,
+        main.payment_plan,
+        main.discount_name,
+        CASE 
+            WHEN main.is_banner_user = '' THEN 'Не переходил' 
+            ELSE main.is_banner_user 
+        END AS is_banner_user, 
+        CASE 
+            WHEN main.discount_name_main = '' THEN '-' 
+            ELSE main.discount_name_main 
+        END AS discount_name_main,
+        main.gate_name,
+        main.is_tracker_user,
+        main.user_payment_plan_id,
+        main.transaction_date::date AS action_start_date,
+        coalesce(sub.start_date, '2100-01-01'::date32) AS start_date,
+        coalesce(sub.end_date, '2100-01-01'::date32) AS end_date
+    FROM ddxfitness_prod_v2.bi_action_users main 
+    LEFT JOIN inflow_and_outflow_new sub USING (user_id)
+    WHERE payment_type = 'new'
+),
+
+flagged_big_table AS (
+    SELECT 
+        user_id,
+        if_employee,
+        payment_plan,
+        discount_name,
+        discount_name_main,
+        is_banner_user,
+        is_tracker_user,
+        gate_name,
+        user_payment_plan_id,
+        action_start_date,
+        start_date,
+        end_date,
+        CASE 
+            WHEN action_start_date = start_date THEN 1 
+            ELSE 0 
+        END AS flag_same_date,
+        CASE 
+            WHEN action_start_date BETWEEN start_date AND end_date AND start_date <> '1970-01-01' THEN 1 
+            ELSE 0 
+        END AS flag_falls_into_period,
+        CASE 
+            WHEN action_start_date > start_date AND start_date <> '1970-01-01' THEN 1 
+            ELSE 0 
+        END AS flag_previous_records
+    FROM bigtable
+),
+
+aggregated_big_table AS (
+    SELECT 
+        user_id,
+        if_employee,
+        action_start_date AS start_date,
+        payment_plan,
+        discount_name,
+        discount_name_main,
+        is_banner_user,
+        is_tracker_user,
+        gate_name,
+        user_payment_plan_id,
+        max(flag_same_date) AS agg_flag_same_date,
+        max(flag_falls_into_period) AS agg_flag_falls_into_period,
+        max(flag_previous_records) AS agg_flag_previous_records
+    FROM flagged_big_table
+    GROUP BY 
+        user_id, if_employee, action_start_date, payment_plan, 
+        discount_name, discount_name_main, is_banner_user, 
+        is_tracker_user, gate_name, user_payment_plan_id
+),
+
+final_table AS (
+    SELECT 
+        user_id,
+        if_employee,
+        start_date,
+        payment_plan,
+        discount_name,
+        discount_name_main,
+        is_banner_user,
+        is_tracker_user,
+        gate_name,
+        user_payment_plan_id,
+        CASE 
+            WHEN agg_flag_same_date = 1 THEN 'НЧК'
+            WHEN agg_flag_falls_into_period = 1 THEN 'ЧК'
+            WHEN agg_flag_previous_records = 1 THEN 'БЧК'
+            ELSE 'new'
+        END AS action_user_type
+    FROM aggregated_big_table
+)
+
+SELECT * 
+FROM final_table;
+-- WHERE user_id = 1995434
