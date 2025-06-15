@@ -1,0 +1,47 @@
+WITH list_plans AS (
+    SELECT 
+        id, 
+        payment_plan_name,
+        club_name, 
+        count(*) OVER () AS total_qty 
+    FROM ddxfitness_prod_v2.user_payment_plans_by_day uppbdn 
+    WHERE 1=1
+      AND day_id_day = '2025-03-25'  -- дата изменения цены
+      AND payment_plan_id IN (18, 22)  -- только Infinity и Smart
+      AND status IN ('Current', 'Freezed', 'PaymentPending', 'NotStarted')
+),
+refunds AS (
+    SELECT 
+        user_payment_plan_id, 
+        total_amount AS refund_amount, 
+        t.updated_at::date AS transaction_date,
+        type,
+        c.name AS club_name
+    FROM ddxfitness_prod_v2.bi_completed_transactions t
+    LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos s ON t.club_legal_info_id = s.id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON s.club_id = c.id
+    WHERE type IN ('partial_refund', 'refund')
+      AND t.updated_at::date >= '2025-03-25'  -- дата изменения цены
+      AND user_payment_plan_id <> 0
+      AND provider_id IN (
+          8,  -- subscription refund
+          19  -- subscription deposit refund
+      )
+), 
+final_table AS (
+    SELECT 
+        transaction_date,
+        t1.user_payment_plan_id,
+        type,
+        id, 
+        payment_plan_name,
+        t1.club_name AS club_name,  
+        refund_amount,
+        count(*) OVER (PARTITION BY club_name, transaction_date) AS total_refunds_by_club,
+        count(*) OVER (PARTITION BY transaction_date) AS total_refunds_by_date
+    FROM refunds t1
+    INNER JOIN list_plans t2 ON t1.user_payment_plan_id = t2.id
+)
+
+SELECT * 
+FROM final_table;
