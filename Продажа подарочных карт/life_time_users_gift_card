@@ -1,0 +1,37 @@
+WITH sale_gift_card AS (
+    SELECT 
+        id,
+        nominal,
+        balance,
+        transaction_id,
+        from_user_id,
+        to_user_id,
+        state,
+        created_at,
+        updated_at
+    FROM ddxfitness_prod_v2.pg_gift_cards
+    WHERE toDate(created_at) >= '2024-12-09'
+),
+life_time_client AS (
+    SELECT 
+        user_id,
+        MIN(start_training_date) AS start_date,
+        MAX(CASE 
+                WHEN end_date IS NULL THEN toDate(now()) 
+                ELSE end_date 
+            END) AS end_date
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new
+    GROUP BY user_id
+),
+agg_life_time_client AS (
+    SELECT *,
+           dateDiff('month', start_date, end_date) AS "Кол-во"
+    FROM life_time_client
+    WHERE start_date <= now()
+)
+SELECT DISTINCT 
+    d.from_user_id,
+    t."Кол-во"
+FROM sale_gift_card d
+LEFT JOIN agg_life_time_client t ON d.from_user_id = t.user_id
+WHERE t."Кол-во" > 0;
