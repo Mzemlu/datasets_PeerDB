@@ -1,0 +1,4 @@
+SELECT COUNT(DISTINCT employee_id)
+FROM ddxfitness_prod_v2.pg_positions p
+WHERE name = 'Координатор ТЗ'
+  AND is_deleted = false;
