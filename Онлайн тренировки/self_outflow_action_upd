@@ -1,0 +1,80 @@
+WITH filter_table AS (
+    SELECT * 
+    FROM ddxfitness_prod_v2.bi_action_users
+    WHERE 1 = 1
+      AND cancel_date >= '{{from_dttm}}'
+      AND cancel_date < '{{to_dttm}}'
+      AND if_employee = 'Клиент'
+      {% if filter_values('discount_name_main') %} 
+      AND discount_name_main IN ({{ "'" + "', '".join(filter_values('discount_name_main')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_banner_user') %} 
+      AND is_banner_user IN ({{ "'" + "', '".join(filter_values('is_banner_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_trial_user') %} 
+      AND is_trial_user IN ({{ "'" + "', '".join(filter_values('is_trial_user')) + "'" }})
+      {% endif %}
+      {% if filter_values('gate_name') %} 
+      AND gate_name IN ({{ "'" + "', '".join(filter_values('gate_name')) + "'" }})
+      {% endif %}
+      {% if filter_values('payment_plan') %} 
+      AND payment_plan IN ({{ "'" + "', '".join(filter_values('payment_plan')) + "'" }})
+      {% endif %}
+      {% if filter_values('is_tracker_user') %} 
+      AND is_tracker_user IN ({{ "'" + "', '".join(filter_values('is_tracker_user')) + "'" }})
+      {% endif %}
+),
+
+main AS ( 
+    SELECT 
+        cancel_reason, 
+        end_date,  
+        cancel_date, 
+        min(transaction_date) OVER (PARTITION BY user_id, user_payment_plan_id) AS min_transaction_date,
+        max(transaction_date) OVER (PARTITION BY user_id, user_payment_plan_id) AS max_transaction_date,
+        date_diff(day, max_transaction_date, cancel_date) AS days_in_contract, 
+        CASE 
+            WHEN date_diff(day, max_transaction_date, cancel_date) = 40 
+            THEN 40 
+            ELSE modulo(date_diff(day, max_transaction_date, cancel_date), 40) 
+        END AS date_diff,
+        date_diff(day, min_transaction_date, video_date) AS date_diff_view,
+        if_employee, 
+        user_id, 
+        payment_plan, 
+        sum_views,
+        video_date,
+        first_value(gate_name) OVER (PARTITION BY user_id, user_payment_plan_id) AS gate_name,
+        is_trial_user
+    FROM filter_table bau
+    LEFT JOIN (
+        SELECT 
+            user_id, 
+            min(updated_at) AS video_date, 
+            count(*) AS sum_views 
+        FROM ddxfitness_prod_v2.bi_video_progress_action 
+        GROUP BY user_id
+    ) bvpa 
+    ON bau.user_id = bvpa.user_id 
+)
+
+SELECT 
+    cancel_reason, 
+    end_date,  
+    cancel_date, 
+    min_transaction_date,
+    max_transaction_date,
+    date_diff, 
+    days_in_contract,
+    date_diff_view,
+    if_employee, 
+    user_id, 
+    payment_plan, 
+    sum_views,
+    video_date,
+    gate_name
+FROM main
+GROUP BY 
+    cancel_reason, end_date, cancel_date, min_transaction_date, max_transaction_date, 
+    date_diff, days_in_contract, date_diff_view, if_employee, user_id, payment_plan, 
+    sum_views, video_date, gate_name;
