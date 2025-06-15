@@ -1,0 +1,58 @@
+WITH empl_list AS (
+    SELECT user_id 
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+    WHERE payment_plan_id IN (1,152,208) 
+      AND status = 'Current' 
+    UNION ALL
+    SELECT user_id  
+    FROM ddxfitness_prod_v2.pg_employees e2 
+    WHERE is_active = 1
+),
+
+activation_trials AS (
+    SELECT 
+        id,
+        user_id, 
+        CASE WHEN e.user_id IS NULL THEN 'Клиент' ELSE 'Сотрудник' END AS if_employee,
+        club_id, 
+        (start_date + INTERVAL '3' HOUR) AS date, 
+        toStartOfMonth((start_date + INTERVAL '3' HOUR)::date) AS month
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+    LEFT JOIN empl_list e ON upp.user_id = e.user_id
+    WHERE payment_plan_id = 207 
+      AND status NOT IN ('Created', 'Deleted')
+    GROUP BY 1,2,3,4,5,6
+),
+
+transactions_after_trial AS (
+    SELECT 
+        t.id, 
+        t.user_id, 
+        atr.if_employee,
+        t.user_payment_plan_id, 
+        total_amount, 
+        t.updated_at + INTERVAL '3' HOUR AS updated_at, 
+        atr.date AS start_date,
+        atr.month,  
+        ROW_NUMBER() OVER(PARTITION BY user_payment_plan_id ORDER BY updated_at ASC) AS rn
+    FROM ddxfitness_prod_v2.pg_transactions t  
+    LEFT JOIN activation_trials atr ON t.user_id = atr.user_id 
+    WHERE status = 'completed' 
+      AND provider_id IN (
+          1, 2, 6, 9, 10, 17, 26, 27, 28, 29, 37, 38
+      )
+      AND t.updated_at >= '2024-05-27'
+      AND t.updated_at > atr.date 
+      AND total_amount IN (199, 299)
+) 
+
+SELECT 
+    t1.id, 
+    t1.user_id, 
+    t1.if_employee,
+    t1.club_id, 
+    t1.date, 
+    t1.month,   
+    CASE WHEN t2.user_id IS NULL THEN 0 ELSE 1 END AS flag_payment 
+FROM activation_trials t1 
+LEFT JOIN transactions_after_trial t2 ON t1.user_id = t2.user_id AND rn = 1;
