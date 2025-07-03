@@ -1,0 +1,70 @@
+WITH extract_answer AS (
+    SELECT
+        s.id AS id,
+        survey_id,
+        s.user_id AS user_id,
+        u.user_type,
+        u2.sex AS sex,
+        arrayJoin(JSONExtractArrayRaw(ifNull(answer_value, '[]'), 'answers')) AS answer,
+        upperUTF8(formatDateTime(s.updated_at + INTERVAL 3 HOUR, '%b-%Y')) AS date_month_for_filter
+    FROM ddxfitness_prod_v2.pg_surveys_results s
+    LEFT JOIN ddxfitness_prod_v2.bi_users_cohorts u ON s.user_id = u.user_id
+    LEFT JOIN ddxfitness_prod_v2.pg_users u2 ON s.user_id = u2.id
+    WHERE user_id <> 228402
+    {% if filter_values('date_month_for_filter') %} 
+    AND date_month_for_filter IN ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+    {% endif %}
+    {% if filter_values('user_type') %} 
+    AND user_type IN ({{ "'" + "', '".join(filter_values('user_type')) + "'" }})
+    {% endif %}
+),
+club_assignment AS (
+    SELECT
+        *,
+        last_value(
+            CASE WHEN JSONExtractString(answer, 'question') ILIKE '%Выбери клуб, который будешь оценивать%' 
+                    OR JSONExtractString(answer, 'question') ILIKE '%В каком клубе занимаешься?%'
+            THEN JSONExtractInt(answer, 'value') END
+        ) OVER (
+            PARTITION BY user_id
+            ORDER BY id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS club_id,
+        JSONExtractString(answer, 'question') AS question,
+        JSONExtractFloat(answer, 'value') AS rating_value
+    FROM extract_answer
+    WHERE JSONExtractString(answer, 'type') = 'int'
+),
+raw_data AS (
+    SELECT
+        ca.survey_id,
+        ca.question,
+        ca.sex,
+        ca.rating_value,
+        c.name AS club_name,
+        count() OVER (PARTITION BY ca.question, c.name) AS total_responses,
+        count() OVER (PARTITION BY ca.question, c.name, ca.sex) AS sex_responses,
+        CASE WHEN rating_value >= 9 THEN 1 ELSE 0 END AS is_promoter,
+        CASE WHEN rating_value <= 6 THEN 1 ELSE 0 END AS is_critic
+    FROM club_assignment ca
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON ca.club_id = c.id
+    WHERE ca.question NOT ILIKE '%Выбери клуб, который будешь оценивать%' 
+          AND ca.question NOT ILIKE '%В каком клубе занимаешься?%'
+    {% if filter_values('club_name')|length > 0 %}
+      AND club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+    {% endif %}
+)
+SELECT
+    survey_id,
+    question,
+    avg(CASE WHEN sex = 'male' THEN is_promoter - is_critic ELSE NULL END) AS nps_male,
+    avg(CASE WHEN sex = 'female' THEN is_promoter - is_critic ELSE NULL END) AS nps_female,
+    avg(is_promoter - is_critic) AS nps,
+    avg(CASE WHEN sex = 'male' THEN rating_value ELSE NULL END) AS avg_male_rating,
+    avg(CASE WHEN sex = 'female' THEN rating_value ELSE NULL END) AS avg_female_rating,
+    avg(rating_value) AS avg_total_rating,
+    countIf(sex = 'male') / count() AS male_percentage,
+    countIf(sex = 'female') / count() AS female_percentage,
+    count() AS total_respondents
+FROM raw_data
+GROUP BY survey_id, question;
