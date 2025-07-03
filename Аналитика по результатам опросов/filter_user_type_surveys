@@ -1,0 +1,9 @@
+select 'Когорта 1' user_type
+UNION ALL
+select 'Когорта 2'
+UNION ALL
+select 'Когорта 3'
+UNION ALL
+select 'Когорта 4'
+UNION ALL
+select 'Остальные'
