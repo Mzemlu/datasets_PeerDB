@@ -1,0 +1,67 @@
+WITH list_users AS (
+    SELECT user_id 
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new iao 
+    WHERE end_date >= '2021-01-01'
+      AND last_payment_plan_id IN (18, 20, 22, 243, 242, 241)
+    GROUP BY 1
+),
+list_subscriptions AS (
+    SELECT
+        user_id, 
+        start_date, 
+        last_payment_plan_id,
+        end_date, 
+        leadInFrame(start_date) OVER (
+            PARTITION BY user_id ORDER BY start_date 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS next_start
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new
+    WHERE user_id IN (SELECT user_id FROM list_users)
+),
+list_subscriptions2 AS (
+    SELECT
+        user_id, 
+        start_date, 
+        last_payment_plan_id,
+        end_date, 
+        next_start,
+        row_number() OVER (PARTITION BY user_id ORDER BY end_date) AS num_closing 
+    FROM list_subscriptions 
+    WHERE next_start <> '1970-01-01'
+      AND end_date >= '2021-01-01'
+      AND last_payment_plan_id IN (18, 20, 22, 243, 242, 241)
+)
+SELECT
+    user_id,
+    count(user_id) OVER () AS total_leaved, 
+    start_date, 
+    end_date, 
+    next_start, 
+    last_payment_plan_id, 
+    CASE 
+        WHEN diff_dates BETWEEN 1 AND 30 THEN 1 
+        WHEN diff_dates BETWEEN 31 AND 60 THEN 2
+        WHEN diff_dates BETWEEN 61 AND 90 THEN 3 
+        WHEN diff_dates BETWEEN 91 AND 120 THEN 4 
+        WHEN diff_dates BETWEEN 121 AND 150 THEN 5 
+        WHEN diff_dates BETWEEN 151 AND 180 THEN 6 
+        WHEN diff_dates BETWEEN 181 AND 210 THEN 7 
+        WHEN diff_dates BETWEEN 211 AND 240 THEN 8 
+        WHEN diff_dates BETWEEN 241 AND 270 THEN 9 
+        WHEN diff_dates BETWEEN 271 AND 300 THEN 10 
+        WHEN diff_dates BETWEEN 301 AND 330 THEN 11 
+        WHEN diff_dates BETWEEN 331 AND 360 THEN 12 
+        WHEN diff_dates BETWEEN 361 AND 390 THEN 13 
+        WHEN diff_dates BETWEEN 391 AND 420 THEN 14 
+        WHEN diff_dates BETWEEN 421 AND 450 THEN 15 
+        WHEN diff_dates BETWEEN 451 AND 480 THEN 16 
+        WHEN diff_dates BETWEEN 481 AND 510 THEN 17 
+        WHEN diff_dates BETWEEN 511 AND 540 THEN 18
+        WHEN diff_dates BETWEEN 541 AND 570 THEN 19
+        WHEN diff_dates BETWEEN 571 AND 600 THEN 20
+        ELSE 0 
+    END AS month_day, 
+    (SELECT count(distinct user_id) FROM list_users) AS total_users,
+    date_diff('day', end_date, next_start) AS diff_dates 
+FROM list_subscriptions2
+WHERE num_closing = 1;
