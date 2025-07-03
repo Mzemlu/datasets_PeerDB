@@ -1,1 +1,29 @@
+Датасеты используемые в борде Marketing
 
+Active_users_for_marketing
+Not_active_users_for_marketing(B)
+Not_active_users_for_marketing(C)
+Potential_users_for_marketing
+Not_active_users_for_marketing(A)v2
+все подписки
+Таблица посещений
+Все подписки2_marketing
+offline_leads
+filter_by_clubs_marketing
+type_customer_marketing
+marketing_all_subscribers
+table_visits_for_marketing
+alt_12_month_by_plan
+bi_alt_12_month_by_plan_with_forecast
+bi_cohorts_24_month_by_plan
+bi_alt_24_month_by_plan_new_view
+bi_alt_36_month_by_plan_new_view
+bi_alt_cohorts_36_month_by_plan_new_view
+changing_club
+discount_name_filter
+filter_by_users_for_marketing
+merged_subscriptions
+visits_for_marketing_v2(all_swipes)
+spa
+type_customer_marketing_new
+filter_by_city_marketing
