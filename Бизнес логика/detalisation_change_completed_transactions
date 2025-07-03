@@ -1,0 +1,6 @@
+SELECT *
+FROM ddxfitness_prod_v2.transactions_history
+WHERE id IN (
+    SELECT id
+    FROM ddxfitness_prod_v2.bi_change_completed_status_transaction 
+);
