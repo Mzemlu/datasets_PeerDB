@@ -1,0 +1,5 @@
+select "table",
+    title,
+		"count" as cnt,
+		updated_at + interval '3 hours' as updated_at 
+from bl_iivanov
