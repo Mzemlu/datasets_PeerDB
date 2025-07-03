@@ -1,0 +1,94 @@
+/*Основная таблица с фильтрацией*/
+WITH filter_table AS (
+    SELECT 
+        t.user_id AS user_id,
+        t.type AS `type`,
+        t.gate_id AS gate_id,
+        t.user_payment_plan_id AS user_payment_plan_id,
+        t.discount_id AS discount_id,
+        t.total_amount AS total_amount,
+        t.employee_id AS employee_id,
+        t.status AS status,
+        t.created_at AS created_at,
+        t.updated_at AS updated_at,
+        t.club_legal_info_id AS club_legal_info_id,
+        u2.phone AS phone,
+        u2.email AS email,
+        c.name AS club_name,
+        r.name AS discount_name,
+        t.provider_id AS provider_id,
+        CASE WHEN t.provider_id = 4 THEN 'Авансовый счет' ELSE 'Карта' END AS refund_method,
+        ag.name AS source_name
+    FROM ddxfitness_prod_v2.pg_transactions t
+    LEFT JOIN ddxfitness_prod_v2.pg_users u2 ON t.user_id = u2.id
+    LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos s ON t.club_legal_info_id = s.id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON s.club_id = c.id
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp2 ON t.user_payment_plan_id = upp2.id
+    LEFT JOIN ddxfitness_prod_v2.pg_discounts r ON upp2.discount_id = r.id
+    LEFT JOIN ddxfitness_prod_v2.pg_transaction_gates ag ON t.gate_id = ag.id
+    WHERE t.type <> 'payment' 
+      AND t.total_amount > 10
+      AND updated_at >= toDate(now()) - interval '1 year'
+),
+
+/*Текущая подписка по юзеру*/
+current_payment_plan_name AS (
+    SELECT * FROM (
+        SELECT 
+            upp.id,
+            upp.user_id,
+            upp.payment_plan_id,
+            upp.updated_at,
+            upp.status,
+            pp.name AS payment_plan_name,
+            ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY upp.updated_at DESC) AS rnk
+        FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+        LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON upp.payment_plan_id = pp.id
+    ) t
+    WHERE rnk = 1
+),
+
+/*сотрудники*/
+employees_names AS (
+    SELECT s.id, u.name || ' ' || u.last_name AS employee_name 
+    FROM ddxfitness_prod_v2.pg_employees s
+    LEFT JOIN ddxfitness_prod_v2.pg_users u ON s.user_id = u.id
+),
+
+/*ЧВ по подписке*/
+payment_join_fee AS (
+    SELECT user_payment_plan_id, SUM(join_fee) AS join_fee 
+    FROM ddxfitness_prod_v2.pg_transactions t
+    WHERE status = 'completed' 
+      AND type = 'payment' 
+      AND updated_at >= toDate(now()) - interval '1 year'
+    GROUP BY user_payment_plan_id
+)
+
+SELECT 
+    t.user_id AS user_id,
+    t.type AS `type`,
+    CASE WHEN t.type = 'refund' THEN 'Полный' ELSE 'Частичный' END AS type_refund,
+    t.gate_id AS gate_id,
+    t.user_payment_plan_id AS user_payment_plan_id,
+    t.discount_id AS discount_id,
+    t.total_amount AS total_amount,
+    t.employee_id AS employee_id,
+    t.status AS status,
+    t.created_at AS created_at,
+    t.updated_at AS updated_at,
+    t.club_legal_info_id AS club_legal_info_id,
+    t.phone AS phone,
+    t.email AS email,
+    t.club_name AS club_name,
+    t.discount_name AS discount_name,
+    t.provider_id AS provider_id,
+    t.refund_method AS refund_method,
+    t.source_name AS source_name,
+    n.payment_plan_name AS payment_plan_name,
+    emp.employee_name AS employee_name,
+    df.join_fee AS join_fee
+FROM filter_table t 
+LEFT JOIN current_payment_plan_name n ON t.user_id = n.user_id
+LEFT JOIN employees_names emp ON t.employee_id = emp.id
+LEFT JOIN payment_join_fee df ON t.user_payment_plan_id = df.user_payment_plan_id;
