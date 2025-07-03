@@ -1,0 +1,54 @@
+WITH list AS (
+    SELECT
+        end_date AS date_out,
+        leadInFrame(start_date) OVER (
+            PARTITION BY user_id
+            ORDER BY start_date, first_id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS date_in,
+        user_id,
+        leadInFrame(inflow_club_name) OVER (
+            PARTITION BY user_id
+            ORDER BY start_date, first_id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS inflow_club_name,
+        outflow_club_name
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new
+),
+total AS (
+    SELECT
+        date_out,
+        CASE WHEN date_in = '1970-01-01' THEN '2099-12-31'::Date ELSE date_in END AS date_in,
+        user_id,
+        outflow_club_name AS club_name
+    FROM list
+    WHERE date_out IS NOT NULL
+),
+total_outflow_by_month AS (
+    SELECT
+        toStartOfMonth(date_out) AS month_out,
+        count(*) AS total_users_out
+    FROM total
+    WHERE club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+    GROUP BY 1
+),
+outflow_month_by_month AS (
+    SELECT
+        toStartOfMonth(date_out)::Date AS month_out,
+        toStartOfMonth(date_in)::Date AS month_in,
+        count(*) AS total_users_in
+    FROM total
+    WHERE club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+    GROUP BY 1, 2
+),
+final_outflow_data AS (
+    SELECT
+        mon.month_out,
+        mon.month_in,
+        totmon.total_users_out,
+        mon.total_users_in
+    FROM outflow_month_by_month mon
+    INNER JOIN total_outflow_by_month totmon
+        ON mon.month_out = totmon.month_out
+)
+SELECT * FROM final_outflow_data;
