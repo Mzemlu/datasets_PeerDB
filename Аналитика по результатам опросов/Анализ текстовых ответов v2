@@ -1,0 +1,66 @@
+WITH extract_answer AS (
+    SELECT
+        id,
+        survey_id,
+        s.user_id AS user_id,
+        u.user_type,
+        arrayJoin(JSONExtractArrayRaw(ifNull(answer_value, '[]'), 'answers')) AS answer,
+        upperUTF8(formatDateTime(updated_at + INTERVAL '3' HOUR, '%b-%Y')) AS date_month_for_filter
+    FROM ddxfitness_prod_v2.pg_surveys_results s
+    LEFT JOIN ddxfitness_prod_v2.bi_users_cohorts u ON s.user_id = u.user_id
+    WHERE user_id <> 228402 /*Исключаем тестовые ответы Дани*/
+    {% if filter_values('date_month_for_filter') %} 
+    AND date_month_for_filter IN ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+    {% endif %}
+    {% if filter_values('user_type') %} 
+    AND user_type IN ({{ "'" + "', '".join(filter_values('user_type')) + "'" }})
+    {% endif %}
+),
+club_assignment AS (
+    SELECT
+        *,
+        last_value(
+            CASE 
+                WHEN (JSONExtractString(answer, 'question') ILIKE '%Выбери клуб, который будешь оценивать%' 
+                   OR JSONExtractString(answer, 'question') ILIKE '%В каком клубе занимаешься?%')
+                THEN JSONExtractInt(answer, 'value') 
+            END
+        ) OVER (
+            PARTITION BY user_id
+            ORDER BY id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS club_id,
+        JSONExtractString(answer, 'question') AS question,
+        JSONExtractString(answer, 'type') AS answer_type
+    FROM extract_answer
+),
+responses AS (
+    SELECT
+        ca.survey_id,
+        c.name AS club_name,
+        ca.question,
+        CASE 
+            WHEN ca.answer_type = 'string' THEN JSONExtractString(ca.answer, 'value')
+            WHEN ca.answer_type = 'array' THEN arrayJoin(JSONExtractArrayRaw(ca.answer, 'value'))
+        END AS response_text,
+        ca.answer_type,
+        count(*) AS response_count,
+        uniqExact(ca.user_id) AS unique_users
+    FROM club_assignment ca
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON ca.club_id = c.id
+    WHERE ca.answer_type IN ('string', 'array')
+      AND JSONExtractString(ca.answer, 'question') NOT ILIKE '%выбери клуб%'
+    GROUP BY ca.survey_id, c.name, ca.question, response_text, ca.answer_type
+)
+SELECT
+    survey_id,
+    club_name,
+    question,
+    response_text,
+    answer_type,
+    response_count,
+    unique_users,
+    sum(response_count) OVER (PARTITION BY survey_id, club_name, question),
+    response_count / sum(response_count) OVER (PARTITION BY survey_id, club_name, question) AS percentage
+FROM responses
+ORDER BY club_name, survey_id, question, response_count DESC;
