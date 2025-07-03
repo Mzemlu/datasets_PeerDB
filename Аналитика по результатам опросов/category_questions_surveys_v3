@@ -1,0 +1,89 @@
+WITH extract_answer AS (
+    SELECT
+        id,
+        survey_id,
+        s.user_id AS user_id,
+        u.user_type,
+        arrayJoin(JSONExtractArrayRaw(ifNull(answer_value, '[]'), 'answers')) AS answer,
+        upperUTF8(formatDateTime(updated_at + INTERVAL 3 HOUR, '%b-%Y')) AS date_month_for_filter
+    FROM ddxfitness_prod_v2.pg_surveys_results s
+    LEFT JOIN ddxfitness_prod_v2.bi_users_cohorts u ON s.user_id = u.user_id
+    WHERE user_id <> 228402
+    {% if filter_values('date_month_for_filter') %} 
+    AND date_month_for_filter IN ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+    {% endif %}
+    {% if filter_values('user_type') %} 
+    AND user_type IN ({{ "'" + "', '".join(filter_values('user_type')) + "'" }})
+    {% endif %}
+),
+flaq_club AS (
+    SELECT
+        *,
+        CASE
+            WHEN JSONExtractString(answer, 'question') ILIKE '%Выбери клуб, который будешь оценивать%' 
+              OR JSONExtractString(answer, 'question') ILIKE '%В каком клубе занимаешься?%'
+            THEN JSONExtractInt(answer, 'value')
+        END AS club_id
+    FROM extract_answer
+),
+filled_club AS (
+    SELECT
+        *,
+        last_value(club_id) OVER (
+            PARTITION BY user_id
+            ORDER BY id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS club_id_json,
+        JSONExtractString(answer, 'question') AS question,
+        JSONExtractFloat(answer, 'value') AS answer_value,
+        JSONExtractString(answer, 'type') AS type_answer
+    FROM flaq_club
+),
+user_questions_agg AS (
+    SELECT
+        survey_id,
+        club_id_json,
+        user_id,
+        COUNT(DISTINCT question) AS unique_question_count
+    FROM filled_club
+    GROUP BY survey_id, club_id_json, user_id
+),
+cnt_question_in_survey AS (
+    SELECT
+        id AS id_surveys,
+        COUNT(DISTINCT JSONExtract(component, 'question', 'String')) AS question_count
+    FROM (
+        SELECT
+            id,
+            arrayJoin(JSONExtractArrayRaw(question_content, 'components')) AS component
+        FROM ddxfitness_prod_v2.pg_surveys
+        WHERE JSONHas(component, 'question')
+    )
+    GROUP BY id
+),
+fin AS (
+    SELECT 
+        g.*,
+        v.*,
+        u.sex,
+        s.name AS club_name,
+        g.unique_question_count / v.question_count * 100 AS completion_percentage
+    FROM user_questions_agg g
+    LEFT JOIN cnt_question_in_survey v ON g.survey_id = v.id_surveys
+    LEFT JOIN ddxfitness_prod_v2.pg_users u ON CAST(g.user_id AS INT) = u.id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs s ON g.club_id_json = s.id
+),
+completion_groups AS (
+    SELECT
+        survey_id,
+        sex,
+        user_id,
+        club_name,
+        CASE 
+            WHEN completion_percentage < 50 THEN '1. прошли меньше 50% опросника'
+            WHEN completion_percentage >= 50 AND completion_percentage < 80 THEN '2. прошли от 50 до 80%'
+            WHEN completion_percentage >= 80 THEN '3. прошли больше 80% опросника'
+        END AS category
+    FROM fin
+)
+SELECT * FROM completion_groups;
