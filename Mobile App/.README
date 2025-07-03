@@ -1,1 +1,33 @@
+Датасеты используемые в борде Mobile App
 
+sex_filter
+mobile_events
+crash_count
+crash_reason
+registration_funnel_new
+funnel_group_training
+installations_and_user_activity
+installations_and_user_activity_chart
+is_reinstallation_chart
+buying_action_price_page
+buying_onboarding_action
+mobile_purchase_subscription_new
+filter age
+mobile_filter_status
+registration_funnel_with_filters
+funnel_group_training_with_filters
+action_purchase_funnel_main_screen_banner
+buying_action_screen_bottom_button
+mobile_dau
+mobile_mau
+deleted_users_and_reinstallations
+buying_action_screen_top_button
+action_purchases _video_program_screen
+user_engagement
+mobile_purchase_subscription
+action_purchases _video_training_screen
+filter_by_club_qr
+payment_plan_filter_mobile
+errors_aggregation
+table_crash
+errors_graphic_filter
