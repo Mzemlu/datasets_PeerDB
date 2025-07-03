@@ -1,0 +1,24 @@
+SELECT
+    toTimezone(t.updated_at, 'Europe/Moscow') AS updated_at,
+    s.club_id AS club_id,
+    c.name AS club_name,
+    count(*) AS all_refund,
+    sum(total_amount) AS all_total_amount,
+    countIf(type = 'refund') AS cnt_refund,
+    coalesce(sumIf(total_amount, type = 'refund'), 0) AS refund_total_amount,
+    round(countIf(type = 'refund') / count(*), 2) AS percent_refund_cnt,
+    countIf(type = 'partial_refund') AS cnt_partial_refund,
+    coalesce(sumIf(total_amount, type = 'partial_refund'), 0) AS partial_refund_total_amount,
+    round(countIf(type = 'partial_refund') / count(*), 2) AS percent_partial_refund_cnt
+FROM ddxfitness_prod_v2.pg_transactions t
+LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos s ON t.club_legal_info_id = s.id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON s.club_id = c.id
+WHERE t.type IN ('refund', 'partial_refund')
+    AND total_amount > 10
+    {% if from_dttm %}
+    AND toDate(t.updated_at) >= toDate('{{ from_dttm }}')
+    {% endif %}
+    {% if to_dttm %}
+    AND toDate(t.updated_at) <= toDate('{{ to_dttm }}')
+    {% endif %}
+GROUP BY s.club_id, c.name, t.updated_at
