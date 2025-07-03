@@ -1,1 +1,15 @@
+Датасеты используемые в борде Revenue
 
+Сверка с Cloud_Payments
+max_revenue
+revenue_today
+revenue_yesterday
+min_revenue
+revenue_today(subscription_registration)
+revenue_today(recurrent)
+revenue_yesterday(subscription_registration)
+revenue_yesterday(recurrent)
+выручка с месяцами и днями
+dashboards_list_click
+percentage_deviation_revenue
+day
