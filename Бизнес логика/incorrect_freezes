@@ -1,0 +1,53 @@
+WITH _freezes_marked AS (
+    SELECT 
+        id,
+        user_payment_plan_id,
+        status,
+        updated_at, 
+        lagInFrame(status) OVER (
+            PARTITION BY id 
+            ORDER BY version_updated_at ASC, version ASC 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS prev_status,
+        version_updated_at, 
+        version
+    FROM ddxfitness_prod_v2.user_freezes_history upph
+),
+_freezes_clean AS (
+    SELECT 
+        *	
+    FROM _freezes_marked
+    WHERE (prev_status = '') OR (status <> prev_status)
+),
+_freezes_with_next_status AS (
+    SELECT
+        *,
+        leadInFrame(status) OVER (
+            PARTITION BY id 
+            ORDER BY version_updated_at ASC, version ASC 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS next_status
+    FROM _freezes_clean
+),
+_freezes_incorrect_marked AS (
+    SELECT
+        *,
+        CASE
+            WHEN next_status = '' THEN 0 -- last one
+            WHEN status = 'Current' AND next_status = 'Ended' THEN 0 -- ok
+            WHEN status = 'Current' THEN 1 -- not ok
+            WHEN status = 'PaymentPending' AND next_status = 'Current' THEN 0 -- ok
+            WHEN status = 'NotStarted' AND next_status = 'Current' THEN 0 -- ok
+            WHEN next_status = 'Current' THEN 1 -- not ok
+            ELSE 0
+        END AS possibly_incorrect
+    FROM _freezes_with_next_status
+),
+incorrect_freezes AS (
+    SELECT 
+        *
+    FROM _freezes_incorrect_marked
+    WHERE possibly_incorrect
+)
+SELECT * 
+FROM incorrect_freezes;
