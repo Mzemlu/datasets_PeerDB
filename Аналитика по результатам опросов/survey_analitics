@@ -1,0 +1,67 @@
+WITH extract_answer AS (
+    SELECT
+        id,
+        survey_id,
+        s.user_id AS user_id,
+        u.user_type,
+        arrayJoin(JSONExtractArrayRaw(ifNull(answer_value, '[]'), 'answers')) AS answer,
+        upperUTF8(formatDateTime(updated_at + INTERVAL '3' HOUR, '%b-%Y')) AS date_month_for_filter
+    FROM ddxfitness_prod_v2.pg_surveys_results s
+    LEFT JOIN ddxfitness_prod_v2.bi_users_cohorts u ON s.user_id = u.user_id
+    WHERE user_id <> 228402
+    {% if filter_values('date_month_for_filter') %} 
+    AND date_month_for_filter IN ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+    {% endif %}
+    {% if filter_values('user_type') %} 
+    AND user_type IN ({{ "'" + "', '".join(filter_values('user_type')) + "'" }})
+    {% endif %}
+),
+flaq_club AS (
+    SELECT
+        *,
+        CASE
+            WHEN JSONExtractString(answer, 'question') ILIKE '%Выбери клуб, который будешь оценивать%' 
+              OR JSONExtractString(answer, 'question') ILIKE '%В каком клубе занимаешься?%'
+            THEN JSONExtractInt(answer, 'value')
+        END AS club_id
+    FROM extract_answer
+),
+filled_club AS (
+    SELECT
+        *,
+        last_value(club_id) OVER (
+            PARTITION BY user_id
+            ORDER BY id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS club_id_json,
+        JSONExtractString(answer, 'question') AS question,
+        JSONExtractFloat(answer, 'value') AS answer_value,
+        JSONExtractString(answer, 'type') AS type_answer
+    FROM flaq_club
+    WHERE JSONExtractString(answer, 'type') = 'int'
+),
+main_table AS (
+    SELECT
+        CASE WHEN answer_value >= 9 THEN 1 ELSE 0 END AS is_promoter,
+        CASE WHEN answer_value <= 6 THEN 1 ELSE 0 END AS is_critic,
+        b.*,
+        s.name AS club_name
+    FROM filled_club b
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs s ON b.club_id_json = s.id
+    WHERE b.club_id IS NULL AND b.club_id_json IS NOT NULL
+)
+SELECT
+    survey_id,
+    club_name,
+    question,
+    sum(is_promoter) AS qty_is_promoter,
+    sum(is_critic) AS qty_is_critic,
+    (sum(is_promoter) - SUM(is_critic)) / count(*) AS nps,
+    avg(answer_value) AS average_rating,
+    count(*) AS total_responses,
+    countIf(answer_value >= 5) AS satisfied_users,
+    countIf(answer_value < 5) AS unsatisfied_users,
+    countIf(answer_value < 5) / count(*) AS unsatisfied_percentage
+FROM main_table
+GROUP BY survey_id, club_name, question
+ORDER BY club_name;
