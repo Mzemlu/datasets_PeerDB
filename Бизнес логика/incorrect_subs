@@ -1,0 +1,58 @@
+WITH _subscriptions_marked AS (
+    SELECT 
+        id,
+        payment_plan_id,
+        user_id,
+        club_id,
+        status,
+        updated_at, 
+        lagInFrame(status) OVER (
+            PARTITION BY id 
+            ORDER BY version_updated_at ASC, version ASC 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS prev_status,
+        version_updated_at, 
+        version
+    FROM ddxfitness_prod_v2.user_payment_plans_history upph
+),
+_subscriptions_clean AS (
+    SELECT 
+        *	
+    FROM _subscriptions_marked
+    WHERE (prev_status IS NULL) OR (status <> prev_status)
+),
+_subscriptions_with_next_status AS (
+    SELECT
+        *,
+        leadInFrame(status) OVER (
+            PARTITION BY id 
+            ORDER BY version_updated_at ASC, version ASC 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS next_status
+    FROM _subscriptions_clean
+),
+_subscriptions_incorrect_marked AS (
+    SELECT
+        *,
+        CASE
+            WHEN next_status IS NULL THEN 0 -- last one
+            WHEN status = 'Created' AND next_status = 'Deleted' THEN 0 -- ok
+            WHEN next_status = 'Deleted' THEN 1 -- not ok
+            WHEN status = 'Created' AND next_status = 'NotStarted' THEN 0 -- ok
+            WHEN next_status = 'NotStarted' THEN 1 -- not ok
+            WHEN status = 'Deleted' THEN 1 -- after Deleted more statuses
+            WHEN status = 'Ended' AND next_status = 'Refunded' THEN 0 -- ok
+            WHEN status = 'Refunded' THEN 1 -- after Refunded more statuses
+            WHEN status = 'Ended' THEN 1 -- after Ended more statuses
+            ELSE 0
+        END AS possibly_incorrect
+    FROM _subscriptions_with_next_status
+),
+incorrect_subs AS (
+    SELECT 
+        *
+    FROM _subscriptions_incorrect_marked
+    WHERE possibly_incorrect = 1
+)
+SELECT * 
+FROM incorrect_subs;
