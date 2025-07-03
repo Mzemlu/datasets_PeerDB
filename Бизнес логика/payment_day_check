@@ -1,0 +1,108 @@
+WITH current_plans AS (
+    SELECT 
+        upp.id, 
+        upp.payment_plan_id, 
+        upp.start_date + INTERVAL '3' HOUR AS start_date,
+        pp.name,
+        pp.interval_type,
+        pp.membership_fee,
+        upp.pay_date,
+        upp.status
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    INNER JOIN ddxfitness_prod_v2.pg_payment_plans pp 
+        ON upp.payment_plan_id = pp.id AND pp.is_recurrent 
+    WHERE upp.status NOT IN ('Deleted', 'Refunded', 'Ended', 'Created')
+      AND upp.payment_plan_id NOT IN (1, 111, 88)
+),
+payments AS (
+    SELECT tr.user_payment_plan_id, SUM(CASE WHEN tr.type = 'payment' THEN 1 ELSE -1 END) AS payments 
+    FROM ddxfitness_prod_v2.pg_transactions tr 
+    INNER JOIN current_plans cp ON tr.user_payment_plan_id = cp.id
+    WHERE tr.status = 'completed'
+      AND tr.membership_fee > 0
+      AND tr.provider_id IN (1, 2, 6, 9, 10, 17, 26, 27, 28, 29, 37, 38)
+    GROUP BY 1
+),
+freezes AS (
+    SELECT uf.user_payment_plan_id, SUM(uf.end_date - uf.start_date) AS total_frozen 
+    FROM current_plans cp
+    INNER JOIN ddxfitness_prod_v2.pg_user_freezes uf 
+        ON cp.id = uf.user_payment_plan_id 
+    WHERE uf.status IN ('Ended', 'Current', 'NotStarted')
+    GROUP BY 1
+),
+history_with_prev_original AS (
+    SELECT id, status, updated_at, version_updated_at, pay_date,
+           any(status) OVER (PARTITION BY id ORDER BY version_updated_at ASC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS status_prev
+    FROM ddxfitness_prod_v2.user_payment_plans_history upph
+    INNER JOIN current_plans cp ON upph.id = cp.id
+),
+history_clean AS (
+    SELECT id, status, updated_at, version_updated_at, pay_date
+    FROM history_with_prev_original
+    WHERE status <> status_prev OR status_prev IS NULL
+),
+history_with_prev_next_clean AS (
+    SELECT id, status, updated_at, version_updated_at, pay_date,
+           any(status) OVER (PARTITION BY id ORDER BY version_updated_at ASC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS status_prev,
+           any(updated_at) OVER (PARTITION BY id ORDER BY version_updated_at ASC ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING) AS updated_at_prev,
+           any(status) OVER (PARTITION BY id ORDER BY version_updated_at ASC ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING) AS status_next
+    FROM history_clean
+),
+status_periods_prev AS (
+    SELECT 
+        id, status, status_prev, status_next,
+        updated_at, updated_at_prev, version_updated_at, pay_date,
+        ROUND((updated_at::timestamp - COALESCE(updated_at_prev, updated_at)::timestamp) / 3600 / 24, 0) AS diff
+    FROM history_with_prev_next_clean
+),
+status_periods_current AS (
+    SELECT 
+        id, status, status_prev, status_next,
+        updated_at, updated_at_prev, version_updated_at, pay_date,
+        ROUND(((now() + INTERVAL 3 HOUR)::timestamp - updated_at::timestamp) / 3600 / 24, 0) AS diff
+    FROM history_with_prev_next_clean
+    WHERE status_next IS NULL
+),
+pendings AS (
+    SELECT id, SUM(diff) AS days_pending 
+    FROM (
+        SELECT id, diff FROM status_periods_prev WHERE status_prev = 'PaymentPending'
+        UNION ALL 
+        SELECT id, diff FROM status_periods_current WHERE status = 'PaymentPending'
+    ) un
+    GROUP BY 1
+),
+total AS (
+    SELECT 
+        cp.id, 
+        cp.start_date::date AS plan_start_date,
+        tr.payments,
+        cp.interval_type,
+        fr.total_frozen,
+        pend.days_pending,
+        cp.start_date::date +
+            CASE 
+                WHEN cp.interval_type = 'month' THEN INTERVAL tr.payments MONTH 
+                WHEN cp.interval_type = 'year' THEN INTERVAL tr.payments * 12 MONTH 
+                ELSE INTERVAL 0 MONTH 
+            END AS calculated_date_payments,
+        calculated_date_payments + fr.total_frozen AS calculated_date_payments_freezes,
+        calculated_date_payments_freezes + pend.days_pending AS calculated_date_payments_freezes_pendings,
+        CASE 
+            WHEN cp.pay_date IS NULL THEN NULL 
+            ELSE cp.pay_date::date 
+        END AS database_pay_date,
+        CASE 
+            WHEN database_pay_date IS NULL THEN NULL 
+            ELSE calculated_date_payments_freezes_pendings - database_pay_date 
+        END AS difference
+    FROM current_plans cp 
+    INNER JOIN payments tr ON cp.id = tr.user_payment_plan_id
+    LEFT JOIN freezes fr ON fr.user_payment_plan_id = cp.id
+    LEFT JOIN pendings pend ON pend.id = cp.id
+)
+SELECT * 
+FROM total 
+WHERE difference < -11
+  AND plan_start_date >= '2024-01-01';
