@@ -1,1 +1,38 @@
+Датасеты используемые в борде ALT по клиентам
 
+alt_per_users_12_month_cohort
+alt_without_forecast(12 month)_per_users
+alt_with_growth_function(12 month)_per_users
+cohort_24_month(with forecast)_per_users
+alt_with_function_growth_per_users
+alt_dynamic_12_month(without forecast)(90)
+alt_dynamic_36_month(without forecast)(90)
+alt_dynamic_12_month(with forecast)(90)
+alt_dynamic_24_month(with forecast)(90)
+ALT_12m_forecast_table_dataset
+ALT_12m_forecast_chart_dataset
+ALT_36m_forecast_table_dataset
+ALT_24m_forecast_chart_dataset
+ALT_12m_no_forecast_chart_dataset
+ALT_24m_no_forecast_chart_dataset
+ALT_36m_no_forecast_chart_dataset
+bi_alt_cohorts_36_month_by_sex
+bi_alt_cohorts_24_month_by_sex
+bi_alt_cohorts_12_month_by_sex
+bi_alt_cohorts_12_month_by_age
+bi_alt_cohorts_24_month_by_age
+alt_without_forecast(24 month)_per_users
+ALT_24m_forecast_table_dataset
+bi_alt_cohorts_36_month_by_age
+alt_with_growth_function(24 month)_per_users
+alt_dynamic_36_month(with forecast)(90)
+bi_alt_12_month_by_age
+cohort_36_month(with forecast)_per_users
+alt_dynamic_24_month(without forecast)(90)
+bi_alt_24_month_by_age
+bi_alt_12_month_by_sex
+alt_without_forecast(36 month)_per_users
+ALT_36m_forecast_chart_dataset
+bi_alt_36_month_by_age
+bi_alt_36_month_by_sex
+bi_alt_24_month_by_sex
