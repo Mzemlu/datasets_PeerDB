@@ -1,1 +1,29 @@
+Датасеты используемые в борде Анализ клиентов
 
+Смена клубов по месяцам
+Акции по месяцам
+срез клиентов по клубам
+срез клиентов по сети
+avg/percentile_clubs_month
+срез клиентов по клубам без привязанных карт
+revenue(inflow)
+revenue_club_day(inflow)
+active_freezes
+Друзья клиентов с датами посещений
+payment_plan_filter
+inflow_outflow
+discount_names
+subscription_status
+status_filter
+inflow_click2
+outflow_click2
+click_outflow_detalisation
+filter_by_month
+filter_by_clubs_customer_analysis
+dashboards_list_click
+dashboards_list_new
+active_users_without_visits
+outflow_without visits
+dashboards_structure
+отчет по подпискам (клуб) - посгре
+subs_by_clubs_new
