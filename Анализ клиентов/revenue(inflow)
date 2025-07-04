@@ -1,0 +1,42 @@
+WITH refund_table AS (
+    SELECT
+        payment_transaction_id,
+        SUM(total_amount) AS summ
+    FROM
+        ddxfitness_prod_v2.pg_transactions
+    WHERE
+        "type" IN ('refund', 'partial_refund')
+        AND status IN ('completed', 'awaiting')
+    GROUP BY
+        payment_transaction_id
+),
+revenue_table AS (
+    SELECT
+        t.id AS transaction_id,
+        t.user_id AS user_id,
+        c.name AS club_name,
+        CASE 
+            WHEN ref_summ.summ IS NULL THEN t.total_amount
+            ELSE t.total_amount - ref_summ.summ
+        END AS total_amount,
+        t.created_at + INTERVAL '3 hour' AS date
+    FROM
+        ddxfitness_prod_v2.pg_transactions t
+        LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = t.user_payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = upp.club_id
+        LEFT JOIN refund_table ref_summ ON ref_summ.payment_transaction_id = t.id
+    WHERE
+        t.status = 'completed'
+        AND t.provider_id IN (6, 17, 26, 27)
+        AND t.created_at >= '2022-12-11 21:00:00'
+        AND upp.payment_plan_id IN (SELECT id FROM ddxfitness_prod_v2.pg_d_inflow_payment_plans)
+)
+SELECT
+    upperUTF8(formatDateTime(date, '%b-%Y')) AS date_month_for_filter,
+    club_name,
+    SUM(total_amount) AS total_amount
+FROM
+    revenue_table
+GROUP BY
+    date_month_for_filter,
+    club_name;
