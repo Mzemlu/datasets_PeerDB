@@ -1,0 +1,43 @@
+WITH cte AS (
+    SELECT 
+        upp.id AS id, 
+        upp.user_id AS user_id, 
+        concat(u.last_name,' ', u.name, ' ', coalesce(middle_name,'')) AS name,
+        upp.club_id AS club_id, 
+        c.name AS club_name,
+        upp.signed_date AS signed_date, 
+        upp.start_date AS start_date, 
+        upp.status AS status,
+        upp.discount_id AS discount_id, 
+        upp.discount_code_id AS discount_code_id, 
+        d.name AS disc_name, 
+        dc.code AS code,
+        u.phone AS phone,
+        text
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+    LEFT JOIN ddxfitness_prod_v2.pg_users u 
+        ON upp.user_id = u.id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c 
+        ON upp.club_id = c.id
+    LEFT JOIN ddxfitness_prod_v2.pg_discounts d 
+        ON upp.discount_id = d.id
+    LEFT JOIN ddxfitness_prod_v2.pg_discount_codes dc 
+        ON upp.discount_code_id = dc.id
+    LEFT JOIN (
+        SELECT DISTINCT user_id, 
+            first_value(text) OVER (PARTITION BY user_id ORDER BY created_at) AS text 
+        FROM (
+            SELECT user_id,
+                   created_at,
+                   text 
+            FROM ddxfitness_prod_v2.pg_notes
+            WHERE text NOT LIKE '%system automation%' 
+              AND match(text, '\\S*(\\S*([a-zA-Z]\\S*[0-9]\\S*)|([0-9]\\S*[a-zA-Z]\\S*))\\S*')
+        ) n
+    ) n
+        ON upp.user_id = n.user_id
+    WHERE payment_plan_id IN (8, 15, 18, 28, 48, 202)
+      AND (discount_code_id IS NOT NULL OR text IS NOT NULL)
+      AND status IN ('Current', 'Freezed', 'NotStarted', 'PaymentPending')
+)
+SELECT * FROM cte;
