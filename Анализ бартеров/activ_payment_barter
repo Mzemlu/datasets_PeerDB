@@ -1,0 +1,45 @@
+/*Сотрудник, который инициализировал бартерную подписку*/
+WITH employee_payment_plan AS (
+    SELECT 
+        DISTINCT t.user_payment_plan_id AS user_payment_plan_id,
+        t.employee_id AS employee_id 
+    FROM ddxfitness_prod_v2.pg_transactions t 
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp2 
+        ON t.user_payment_plan_id = upp2.id
+    WHERE upp2.payment_plan_id IN (8, 15, 48, 131, 133, 153, 154, 155, 202)
+      AND upp2.status IN ('Current', 'Freezed', 'NotStarted')
+      AND t.employee_id > 0
+),
+
+/*Имена сотрудников*/
+employees_names AS (
+    SELECT s.id, u.name || ' ' || u.last_name AS employee_name 
+    FROM ddxfitness_prod_v2.pg_employees s 
+    LEFT JOIN ddxfitness_prod_v2.pg_users u 
+        ON s.user_id = u.id
+)
+
+SELECT 
+    upp.id AS payment_id,
+    upp.user_id AS user_id,
+    u.phone AS phone,
+    u.email AS email,
+    c.name AS club_name,
+    upp.start_date AS start_date,
+    upp.end_date AS end_date,
+    pp.name AS payment_name,
+    upp.status AS status,
+    ss.employee_name AS employee_name
+FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+LEFT JOIN ddxfitness_prod_v2.pg_users u 
+    ON upp.user_id = u.id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c 
+    ON upp.club_id = c.id
+LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp 
+    ON upp.payment_plan_id = pp.id
+LEFT JOIN employee_payment_plan n 
+    ON upp.id = n.user_payment_plan_id
+LEFT JOIN employees_names ss 
+    ON n.employee_id = ss.id
+WHERE upp.payment_plan_id IN (8, 15, 48, 131, 133, 153, 154, 155, 202)
+  AND upp.status IN ('Current', 'Freezed', 'NotStarted');
