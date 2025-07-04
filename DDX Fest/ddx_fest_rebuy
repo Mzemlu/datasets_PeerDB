@@ -1,0 +1,38 @@
+with main_table as (
+    select 
+        case when t1.user_id = 0 then t2.user_id else t1.user_id end as user_id, 
+        case when t1.user_id = 0 then t2.email else t1.email end as email, 
+        case when t1.user_id = 0 then t2.club_name else t1.club_name end as club_name, 
+        case when t1.user_id = 0 then t2.name else t1.name end as name, 
+        case when t1.user_id = 0 then t2.last_name else t1.last_name end as last_name, 
+        case when t1.user_id = 0 then t2.if_employee else t1.if_employee end as if_employee,
+        qty_2025,
+        qty_2024
+    from 
+    (
+        select 
+            user_id, email, club_name, name, last_name, if_employee, 
+            sum(quantity) as qty_2025 
+        from ddxfitness_prod_v2.bi_ddx_fest 
+        where date >= '2025-01-01' and type = 'payment' 
+        group by 1,2,3,4,5,6
+    ) t1
+    full join 
+    (
+        select 
+            user_id, email, club_name, name, last_name, if_employee, 
+            sum(quantity) as qty_2024 
+        from ddxfitness_prod_v2.bi_ddx_fest 
+        where date >= '2024-01-01' and date < '2025-01-01' and type = 'payment' 
+        group by 1,2,3,4,5,6
+    ) t2
+    on t1.user_id = t2.user_id
+)
+select *, 
+    case 
+        when qty_2025 <> 0 and qty_2024 = 0 then 'Купил в 2025'
+        when qty_2025 = 0 and qty_2024 <> 0 then 'Купил в 2024'
+        when qty_2025 <> 0 and qty_2024 <> 0 then 'Купил повторно'
+        else 'неизвестно' 
+    end as user_type
+from main_table;
