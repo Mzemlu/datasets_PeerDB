@@ -1,0 +1,99 @@
+WITH outflow AS (
+    SELECT toStartOfMonth(end_date) AS month_date,
+           club_id,
+           club_name,
+           sum(is_outflow) AS outflow
+    FROM ddxfitness_prod_v2.active_users_by_clubs
+    WHERE is_outflow = 1
+    GROUP BY month_date, club_id, club_name
+),
+inflow AS (
+    SELECT toStartOfMonth(start_date) AS month_date,
+           club_id,
+           club_name,
+           sum(is_inflow) AS inflow
+    FROM ddxfitness_prod_v2.active_users_by_clubs
+    WHERE is_inflow = 1
+    GROUP BY start_date, club_id, club_name
+),
+all_table AS (
+    SELECT month_date, club_id, club_name, outflow, 0 AS inflow FROM outflow
+    UNION ALL
+    SELECT month_date, club_id, club_name, 0 AS outflow, inflow FROM inflow
+),
+grouping_inflow_outflow AS (
+    SELECT month_date, club_id, club_name,
+           sum(outflow) AS outflow,
+           sum(inflow) AS inflow
+    FROM all_table
+    GROUP BY month_date, club_id, club_name
+),
+main_table AS (
+    SELECT s.name AS club_name,
+           concat(s.name, '-', s.club_type) AS club_name_type,
+           ae.acquisition_cost,
+           ae.club_ebitda,
+           ae.club_id,
+           ae.date_month::date AS date_month,
+           ae.ilon,
+           ib.costs,
+           s.open_date,
+           s.club_type,
+           dateDiff('month', s.open_date, toDate(now())) AS cnt_month_open,
+           row_number() OVER (PARTITION BY s.club_type, s.name ORDER BY date_month::date) AS rnk
+    FROM ddxfitness_prod_v2.all_expenses ae
+    LEFT JOIN ddxfitness_prod_v2.investments_by_clubs ib ON ae.club_id = ib.club_id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs s ON ae.club_id = s.id
+    WHERE date_month >= toStartOfMonth(s.open_date)
+),
+roid_table AS (
+    SELECT *,
+           avg(club_ebitda) OVER (PARTITION BY rnk, club_type) AS avg_rnk,
+           median(club_ebitda) OVER (PARTITION BY rnk, club_type) AS median_rnk,
+           sum(club_ebitda) OVER (PARTITION BY club_name ORDER BY date_month) AS cumsum_club_ebitda,
+           CASE WHEN costs >= sum(club_ebitda) OVER (PARTITION BY club_name ORDER BY date_month) THEN 1 END AS payback_period
+    FROM main_table
+),
+date_payback_by_clubs AS (
+    SELECT * FROM (
+        SELECT club_name,
+               club_id,
+               club_name_type,
+               costs,
+               date_month,
+               open_date,
+               club_type,
+               cumsum_club_ebitda,
+               row_number() OVER (PARTITION BY club_id ORDER BY date_month) AS cnt_month_payback_period,
+               CASE WHEN payback_period IS NULL AND lagInFrame(payback_period) OVER (PARTITION BY club_name ORDER BY date_month) = 1 THEN 1 END AS flaq_month_payback_period
+        FROM roid_table
+    ) t
+    WHERE flaq_month_payback_period = 1
+),
+category_clubs AS (
+    SELECT w.*,
+           s.club_type,
+           s.open_date,
+           multiIf(
+               date_diff('month', open_date, now()) > 0 AND date_diff('month', open_date, now()) <= 12, 'молодые',
+               date_diff('month', open_date, now()) > 12 AND date_diff('month', open_date, now()) <= 24, 'юниоры',
+               'зрелые') AS age_club,
+           s.area_in_square_meters,
+           dateDiff('month', s.open_date, toDate(now())) AS cnt_month_open,
+           coalesce(sum(w.inflow) OVER (PARTITION BY w.club_id ORDER BY w.month_date), 0) -
+           coalesce(sum(w.outflow) OVER (PARTITION BY w.club_id ORDER BY w.month_date), 0) AS active_subscribes
+    FROM grouping_inflow_outflow w
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs s ON w.club_id = s.id
+)
+SELECT s.month_date,
+       s.club_id,
+       s.club_name,
+       s.club_type,
+       s.age_club,
+       s.active_subscribes,
+       bs.costs,
+       bs.cumsum_club_ebitda,
+       bs.cnt_month_payback_period
+FROM category_clubs s
+LEFT JOIN date_payback_by_clubs bs ON s.club_id = bs.club_id AND s.month_date = bs.date_month
+WHERE bs.flaq_month_payback_period = 1;
