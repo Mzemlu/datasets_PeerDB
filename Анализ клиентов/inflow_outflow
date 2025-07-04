@@ -1,0 +1,165 @@
+WITH extraction AS (
+    SELECT id,
+        user_id,
+        payment_plan_id,
+        club_id,
+        cancel_reason,
+        (upp.start_date + INTERVAL '3' HOUR)::date AS start_trainings_date,
+        CASE
+            WHEN trans1.updated_at IS NULL THEN (signed_date + INTERVAL '3' HOUR)::date
+            WHEN (trans1.updated_at + interval '3' hour)::date > (signed_date + INTERVAL '3' DAY)::date THEN (signed_date + INTERVAL '3' HOUR)::date
+            ELSE (trans1.updated_at + INTERVAL '3' HOUR)::date
+        END AS start_date,
+        CASE
+            WHEN STATUS = 'Refunded'
+                 AND previous_status = 'Current' THEN coalesce(
+                refund_date,
+                ((CASE WHEN cancel_date::time = '20:59:59' THEN cancel_date + INTERVAL '1' SECOND ELSE cancel_date END) + INTERVAL '3' HOUR)::date,
+                (end_date + INTERVAL '3' HOUR)::date
+            )
+            WHEN STATUS = 'Refunded' THEN coalesce(
+                ((CASE WHEN cancel_date::time = '20:59:59' THEN cancel_date + INTERVAL '1' SECOND ELSE cancel_date END) + INTERVAL '3' HOUR)::date,
+                (end_date + INTERVAL '3' HOUR)::date
+            )
+            ELSE ((CASE WHEN end_date::time = '20:59:59' THEN end_date + INTERVAL '1' SECOND ELSE end_date END) + INTERVAL '3' HOUR)::date
+        END AS end_date,
+        STATUS
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+        LEFT JOIN (
+            SELECT *
+            FROM (
+                SELECT user_payment_plan_id,
+                       first_value(updated_at) OVER (
+                           PARTITION BY user_payment_plan_id
+                           ORDER BY id
+                       ) AS updated_at
+                FROM ddxfitness_prod_v2.pg_transactions
+                WHERE NOT is_deleted
+                  AND STATUS = 'completed'
+            ) t
+            GROUP BY 1, 2
+        ) trans1 ON upp.id = trans1.user_payment_plan_id
+        LEFT JOIN (
+            SELECT *
+            FROM (
+                SELECT user_payment_plan_id,
+                       last_value(created_at + INTERVAL '3 hour') OVER (
+                           PARTITION BY user_payment_plan_id
+                           ORDER BY id
+                           RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                       ) AS refund_date
+                FROM ddxfitness_prod_v2.pg_transactions
+                WHERE NOT is_deleted
+                  AND TYPE != 'payment'
+            ) t
+            GROUP BY 1, 2
+        ) t_refund ON upp.id = t_refund.user_payment_plan_id
+    WHERE payment_plan_id IN (10, 18, 19, 20, 21, 22, 28, 35, 45, 46, 49, 70, 71, 73, 74, 76, 92, 93, 118, 135, 140, 162)
+      AND STATUS NOT IN ('Created', 'Deleted')
+      AND coalesce(cancel_reason, '') <> 'ExcludeFromReport'
+),
+extraction_plus_prev_next AS (
+    SELECT 
+        id,
+        lead(id) OVER (PARTITION BY user_id ORDER BY start_date, id) AS next_record,
+        user_id,
+        cancel_reason,
+        payment_plan_id, 
+        club_id, 
+        start_date,
+        lag(end_date) OVER (PARTITION BY user_id ORDER BY start_date, id) AS prev_end_date,
+        end_date,
+        lead(start_date) OVER (PARTITION BY user_id ORDER BY start_date, id) AS next_start_date,
+        status
+    FROM extraction
+),
+extraction_with_flags AS (
+    SELECT 
+        id,
+        next_record,
+        user_id,
+        cancel_reason,
+        payment_plan_id, 
+        club_id, 
+        start_date,
+        prev_end_date,
+        CASE 
+            WHEN start_date <= prev_end_date THEN 0
+            ELSE 1
+        END AS is_inflow_by_dates,
+        end_date,
+        next_start_date,
+        CASE 
+            WHEN next_start_date <= end_date THEN 0
+            ELSE 1
+        END AS is_outflow_by_dates,
+        status,
+        CASE
+            WHEN status IN ('Refunded', 'Ended') THEN 1
+            ELSE 0
+        END AS is_outflow_by_status
+    FROM extraction_plus_prev_next
+),
+inflow_and_outflow AS (
+    SELECT 
+        id,
+        next_record,
+        user_id, 
+        payment_plan_id, 
+        club_id, 
+        cancel_reason,
+        start_date,
+        prev_end_date,
+        is_inflow_by_dates,
+        end_date,
+        next_start_date,
+        is_outflow_by_dates,
+        status,
+        is_outflow_by_status,
+        is_inflow_by_dates AS is_inflow,
+        is_outflow_by_dates & is_outflow_by_status AS is_outflow
+    FROM extraction_with_flags
+),
+inflow_and_outflow_clean AS (
+    SELECT 
+        id, 
+        user_id, 
+        payment_plan_id, 
+        club_id, 
+        start_date AS date, 
+        status, 
+        cancel_reason,
+        is_inflow AS inflow,
+        0 AS outflow
+    FROM inflow_and_outflow
+    WHERE is_inflow = 1
+    UNION ALL
+    SELECT 
+        id, 
+        user_id, 
+        payment_plan_id, 
+        club_id, 
+        end_date AS date, 
+        status, 
+        cancel_reason,
+        0,
+        is_outflow * (-1) AS outflow
+    FROM inflow_and_outflow
+    WHERE is_outflow = 1
+),
+inflow_and_outflow_final AS (
+    SELECT 
+        io.id, 
+        io.user_id, 
+        CASE WHEN row_number() OVER (PARTITION BY user_id ORDER BY date) = 1 THEN 1 ELSE 0 END AS is_new,
+        io.payment_plan_id, 
+        c.name AS club_name, 
+        TO_CHAR(io.date,'MON-YYYY') AS date_month_for_filter, 
+        io.status, 
+        io.inflow,
+        cancel_reason,
+        io.outflow
+    FROM inflow_and_outflow_clean io
+    INNER JOIN ddxfitness_prod_v2.pg_clubs c ON io.club_id = c.id
+)
+SELECT * FROM inflow_and_outflow_final;
