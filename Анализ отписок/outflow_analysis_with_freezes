@@ -1,0 +1,117 @@
+-- WITH payment_plans_list AS (
+--     SELECT first_id, 
+--            last_id, 
+--            user_id, 
+--            outflow_club_name, 
+--            start_training_date AS start_date, 
+--            end_date, 
+--            toStartOfMonth(end_date) AS end_date_month, 
+--            upperUTF8(formatDateTime(end_date, '%b-%Y')) AS month_year, 
+--            date_diff('day', start_training_date, end_date) AS diff_days
+--     FROM ddxfitness_prod_v2.inflow_and_outflow_new iaon 
+--     LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON iaon.outflow_club_name = c.name
+--     WHERE outflow_club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+--       AND is_outflow = 1
+--       AND c.open_date <= iaon.end_date
+--       AND date_diff('day', start_training_date, end_date) > 11 
+--       AND end_date >= toStartOfMonth(today()) - INTERVAL 14 MONTH
+--       AND end_date <= toStartOfMonth(today()) - INTERVAL 1 DAY
+-- ),
+-- freeze_list AS (
+--     SELECT upp.user_id AS user_id, 
+--            uf.user_payment_plan_id, 
+--            uf.id, 
+--            uf.start_date, 
+--            uf.end_date, 
+--            date_diff('day', uf.start_date, uf.end_date) AS qty_days_freezes
+--     FROM ddxfitness_prod_v2.user_freezes uf 
+--     LEFT JOIN ddxfitness_prod_v2.user_payment_plans upp ON uf.user_payment_plan_id = upp.id
+--     LEFT JOIN (
+--         SELECT user_freeze_id, refunded_transaction_id 
+--         FROM ddxfitness_prod_v2.user_purchases 
+--         WHERE product_id IN (118, 116, 139) 
+--           AND toDateOrNull(toString(updated_at)) >= '2022-12-12'
+--     ) up ON uf.id = up.user_freeze_id
+--     WHERE uf.is_deleted = 0
+--       AND uf.status = 'Ended'
+--       AND uf.end_date <= toStartOfMonth(today()) - INTERVAL 1 DAY
+--       AND up.refunded_transaction_id IS NULL
+--     GROUP BY 1, 2, 3, 4, 5, 6
+-- ),
+-- plans_with_freezes AS (
+--     SELECT 
+--         ppl.first_id,
+--         ppl.last_id,
+--         ppl.user_id,
+--         ppl.outflow_club_name,
+--         ppl.start_date,
+--         ppl.end_date,
+--         ppl.end_date_month,
+--         ppl.month_year,
+--         ppl.diff_days,
+--         CASE WHEN fl.user_payment_plan_id BETWEEN ppl.first_id AND ppl.last_id THEN fl.id ELSE 0 END AS id_f,
+--         CASE WHEN fl.user_payment_plan_id BETWEEN ppl.first_id AND ppl.last_id THEN fl.user_payment_plan_id ELSE 0 END AS user_payment_plan_id_f,
+--         CASE WHEN fl.user_payment_plan_id BETWEEN ppl.first_id AND ppl.last_id THEN fl.start_date ELSE '1970-01-01'::Date END AS start_date_f,
+--         CASE WHEN fl.user_payment_plan_id BETWEEN ppl.first_id AND ppl.last_id THEN fl.end_date ELSE '1970-01-01'::Date END AS end_date_f,
+--         CASE WHEN fl.user_payment_plan_id BETWEEN ppl.first_id AND ppl.last_id THEN fl.qty_days_freezes ELSE 0 END AS qty_days_freezes,
+--         ppl.diff_days - fl.qty_days_freezes AS contract_days
+--     FROM payment_plans_list ppl
+--     LEFT JOIN freeze_list fl ON ppl.user_id = fl.user_id
+-- ),
+-- final_table AS (
+--     SELECT 
+--         user_id, 
+--         last_id, 
+--         end_date_month, 
+--         outflow_club_name AS club_name, 
+--         MIN(diff_days) AS plan_days, 
+--         SUM(qty_days_freezes) AS qty_freezes, 
+--         MIN(diff_days) - SUM(qty_days_freezes) AS days_in_contract
+--     FROM plans_with_freezes
+--     GROUP BY 1, 2, 3, 4
+-- )
+-- SELECT 
+--     DENSE_RANK() OVER (ORDER BY end_date_month DESC) AS rn, 
+--     user_id, 
+--     last_id, 
+--     end_date_month, 
+--     plan_days,
+--     qty_freezes, 
+--     days_in_contract,
+--     upperUTF8(formatDateTime(end_date_month, '%Y-%m')) AS month_year,
+--     IF(modulo(days_in_contract, 30.42) / 30.42 <= 0.36,
+--        floor(days_in_contract / 30.42),
+--        ceil(days_in_contract / 30.42)) AS total_months,
+--     COUNT(*) OVER (PARTITION BY end_date_month) AS sum_total
+-- FROM final_table
+-- WHERE end_date_month >= toStartOfMonth(today()) - INTERVAL 14 MONTH
+--   AND end_date_month <= toStartOfMonth(today()) - INTERVAL 1 DAY
+--   AND total_months != 0;
+
+WITH payment_plans_list AS (
+    SELECT 
+        DENSE_RANK() OVER (ORDER BY toStartOfMonth(end_date) DESC) AS rn,
+        first_id, 
+        last_id, 
+        user_id, 
+        outflow_club_name AS club_name, 
+        start_training_date AS start_date, 
+        end_date, 
+        toStartOfMonth(end_date) AS end_date_month, 
+        upperUTF8(formatDateTime(end_date, '%Y-%m')) AS month_year, 
+        date_diff('day', start_training_date, end_date) AS diff_days,
+        IF(modulo(date_diff('day', start_training_date, end_date), 30.42) / 30.42 <= 0.36,
+           floor(date_diff('day', start_training_date, end_date) / 30.42),
+           ceil(date_diff('day', start_training_date, end_date) / 30.42)) AS total_months,
+        COUNT(*) OVER (PARTITION BY toStartOfMonth(end_date)) AS sum_total
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new iaon
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON iaon.outflow_club_name = c.name
+    WHERE outflow_club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+      AND is_outflow = 1
+      AND c.open_date <= iaon.end_date
+      AND date_diff('day', start_training_date, end_date) > 11
+      AND end_date >= toStartOfMonth(today()) - INTERVAL 14 MONTH
+      AND end_date <= toStartOfMonth(today()) - INTERVAL 1 DAY
+)
+SELECT *
+FROM payment_plans_list;
