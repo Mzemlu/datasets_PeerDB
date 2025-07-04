@@ -1,0 +1,4 @@
+SELECT 
+name as club_name,
+id
+from ddxfitness_prod_v2.pg_clubs
