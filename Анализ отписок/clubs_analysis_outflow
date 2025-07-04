@@ -1,0 +1,13 @@
+SELECT 
+  CASE WHEN qty > 1 THEN 'Несколько клубов' ELSE club_name END AS club_name_2,
+  CASE WHEN qty > 1 THEN '-' ELSE birth_date END AS birth_date
+FROM (
+  SELECT 
+    name AS club_name,  
+    toString(open_date) AS birth_date,
+    count(*) OVER () AS qty
+  FROM ddxfitness_prod_v2.pg_clubs
+  WHERE open_date <= today()
+    AND name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+  GROUP BY 1, 2
+);
