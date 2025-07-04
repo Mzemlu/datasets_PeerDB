@@ -1,0 +1,50 @@
+SELECT 
+    tp.id,
+    tp.transaction_id, 
+    tp.discount_id,
+    d.name AS discount_name,
+    tp.product_id, 
+    tp.product_name, 
+    tp.quantity AS quantity,
+    sum(tp.quantity) OVER (
+        PARTITION BY (tr.updated_at + INTERVAL '3' HOUR)::DATE, product_id 
+        ORDER BY (tr.updated_at + INTERVAL '3' HOUR)::DATE
+    ) AS last_qty,
+    tp.price, 
+    tp.total_amount AS amount,
+    tr.type, 
+    tr.user_id, 
+    u.email, 
+    u.name AS name,
+    u.last_name,
+    u.phone,
+    (tr.updated_at + INTERVAL '3' HOUR)::DATE AS date, 
+    CASE 
+        WHEN t.if_employee IS NULL THEN 'Клиент' 
+        ELSE t.if_employee 
+    END AS if_employee,
+    c.name AS club_name
+FROM ddxfitness_prod_v2.pg_transaction_products tp
+LEFT JOIN ddxfitness_prod_v2.pg_transactions tr ON tp.transaction_id = tr.id
+LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos cli ON tr.club_legal_info_id = cli.id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON cli.club_id = c.id
+LEFT JOIN ddxfitness_prod_v2.pg_users u ON tr.user_id = u.id
+LEFT JOIN ddxfitness_prod_v2.pg_discounts d ON tp.discount_id = d.id
+LEFT JOIN (
+    SELECT 
+        user_id,
+        CASE 
+            WHEN payment_plan_id IN (1, 111, 152) THEN 'Сотрудник' 
+            ELSE 'Клиент' 
+        END AS if_employee
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+    WHERE status NOT IN ('Ended', 'Created', 'Deleted', 'Refunded', 'NonStarted')
+      AND payment_plan_id IN (
+          1, 111, 161, 152, 10, 18, 19, 20, 21, 22, 28, 35, 45, 46, 49, 70, 71,
+          73, 74, 76, 92, 93, 118, 135, 140, 162, 241, 242, 243, 244, 245, 246,
+          277, 278
+      )
+    GROUP BY 1, 2
+) t ON tr.user_id = t.user_id
+WHERE product_id IN (300, 301)
+  AND tr.updated_at > '2025-01-01';
