@@ -1,0 +1,3 @@
+SELECT 'not active' subscription_status, 'not active' user_status
+UNION 
+select 'active', 'active'
