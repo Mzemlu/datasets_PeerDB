@@ -1,0 +1,122 @@
+WITH main_table AS (
+    SELECT 
+        tp.id,
+        tp.transaction_id, 
+        tr.payment_transaction_id,
+        c.name AS club_name,
+        tp.discount_id,
+        d.name AS discount_name,
+        tp.product_id, 
+        tp.product_name, 
+        tp.quantity,
+        sum(tp.quantity) OVER (
+            PARTITION BY (tr.updated_at + INTERVAL '3' HOUR)::DATE, product_id 
+            ORDER BY (tr.updated_at + INTERVAL '3' HOUR)::DATE
+        ) AS last_qty,
+        tp.price, 
+        tp.total_amount AS amount,
+        tr.type, 
+        tr.user_id, 
+        u.email, 
+        u.name,
+        u.last_name,
+        u.phone,
+        (tr.updated_at + INTERVAL '3' HOUR)::DATE AS date, 
+        coalesce(t.if_employee, 'Клиент') AS if_employee
+    FROM ddxfitness_prod_v2.pg_transaction_products tp
+    LEFT JOIN ddxfitness_prod_v2.pg_transactions tr ON tp.transaction_id = tr.id
+    LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos cli ON tr.club_legal_info_id = cli.id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON cli.club_id = c.id
+    LEFT JOIN ddxfitness_prod_v2.pg_users u ON tr.user_id = u.id
+    LEFT JOIN ddxfitness_prod_v2.pg_discounts d ON tp.discount_id = d.id
+    LEFT JOIN (
+        SELECT 
+            user_id,
+            CASE 
+                WHEN payment_plan_id IN (1, 111, 152) THEN 'Сотрудник' 
+                ELSE 'Клиент' 
+            END AS if_employee
+        FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+        WHERE status NOT IN ('Ended', 'Created', 'Deleted', 'Refunded', 'NonStarted')
+        AND payment_plan_id IN (
+            1, 111, 161, 10, 18, 19, 20, 21, 22, 28, 35, 45, 46, 49, 70, 71, 
+            73, 74, 76, 92, 93, 118, 135, 140, 162, 152
+        )
+        GROUP BY 1, 2
+    ) t ON tr.user_id = t.user_id 
+    WHERE product_id IN (300, 301)
+),
+refund_transactions AS (
+    SELECT 
+        l.*, 
+        coalesce(t.refund_transaction, 0) AS refund_transaction, 
+        t.quantity_refund, 
+        t.amount_refund
+    FROM main_table l 
+    LEFT JOIN (
+        SELECT 
+            transaction_id,
+            payment_transaction_id AS refund_transaction,
+            product_id, 
+            quantity AS quantity_refund,
+            amount AS amount_refund
+        FROM main_table 
+        WHERE type = 'refund'
+    ) t ON l.transaction_id = t.refund_transaction AND l.product_id = t.product_id
+),
+fin AS (
+    SELECT 
+        s.*, 
+        CASE 
+            WHEN s.transaction_id = s.refund_transaction THEN s.amount - s.amount_refund 
+            ELSE s.amount 
+        END AS amount_new,
+        CASE 
+            WHEN s.transaction_id = s.refund_transaction THEN s.quantity - s.quantity_refund 
+            ELSE s.quantity 
+        END AS quantity_new,
+        CASE 
+            WHEN s.transaction_id = s.refund_transaction THEN 'refund' 
+            ELSE 'payment' 
+        END AS type_new,
+        CASE 
+            WHEN s.product_id = 300 THEN '2024-07-27'::DATE 
+            WHEN s.product_id = 301 THEN '2024-07-28'::DATE 
+        END AS day_fest
+    FROM refund_transactions s
+    WHERE type <> 'refund'
+),
+scan_tickets AS (
+    SELECT 
+        up.user_id AS user_id_scan,
+        count(*) AS all_cnt_scan
+    FROM ddxfitness_prod_v2.pg_purchases_info t 
+    LEFT JOIN ddxfitness_prod_v2.pg_user_purchases up ON t.user_purchases_id = up.id
+    GROUP BY up.user_id
+),
+agg_table AS (
+    SELECT 
+        user_id,
+        if_employee,
+        discount_name,
+        day_fest,
+        sum(quantity) AS quantity,
+        sum(amount) AS amount
+    FROM fin 
+    GROUP BY 
+        user_id,
+        if_employee,
+        discount_name,
+        day_fest
+)
+SELECT 
+    l.*,
+    sum(l.amount) OVER (PARTITION BY l.user_id) AS all_amount,
+    sum(l.quantity) OVER (PARTITION BY l.user_id) AS all_quantity,
+    s.all_cnt_scan,
+    CASE 
+        WHEN s.user_id_scan IS NULL THEN 'Не прошел' 
+        ELSE 'Прошел' 
+    END AS visit_status
+FROM agg_table l 
+LEFT JOIN scan_tickets s ON l.user_id = s.user_id_scan;
