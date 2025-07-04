@@ -1,0 +1,24 @@
+SELECT   
+    club_name,  
+    end_date_month, 
+    month_year, 
+    qty,
+    RANK() OVER (PARTITION BY club_name ORDER BY end_date_month DESC) rn
+FROM (
+    SELECT 
+        outflow_club_name AS club_name,  
+        toStartOfMonth(end_date) AS end_date_month, 
+        upperUTF8(formatDateTime(end_date, '%Y-%m')) AS month_year, 
+        count(*) AS qty
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new iaon 
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON iaon.outflow_club_name = c.name
+    WHERE 
+        is_outflow = 1
+        AND c.open_date <= iaon.end_date  -- исключаем отток, который был до открытия клуба
+        AND date_diff('day', start_training_date, end_date) > 11  -- исключаем подписки < месяца
+    GROUP BY 1,2,3
+)
+WHERE 
+    end_date_month >= toStartOfMonth(today()) - INTERVAL 14 MONTH 
+    AND end_date_month <= toStartOfMonth(today()) - INTERVAL 1 DAY
+;
