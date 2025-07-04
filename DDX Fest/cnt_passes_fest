@@ -1,0 +1,8 @@
+--- не меняется, т.к постгре
+
+select date_trunc('hour', created_at + interval '3' hour)  as date,
+		purchases_info::jsonb#>>'{number}' as number,
+		count(*) as cnt
+from purchases_info pi2 
+group by date, number
+order by number, count(*)
