@@ -1,0 +1,1 @@
+SELECT id, name as discount_name from ddxfitness_prod_v2.pg_discounts
