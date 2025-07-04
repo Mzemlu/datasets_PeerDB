@@ -1,0 +1,34 @@
+SELECT 
+    t1.id AS id, 
+    t1.user_id AS user_id,  
+    t1.user_name AS user_name, 
+    t1.last_name AS last_name, 
+    t1.email AS email, 
+    t1.club_name AS club_name, 
+    t1.event_date AS date,
+    formatDateTime(t1.event_date, '%T') AS time,
+    CASE 
+        WHEN payment_plan_id IN (1, 111) THEN 'Сотрудник' 
+        ELSE 'Клиент' 
+    END AS if_employee
+FROM ddxfitness_prod_v2.bi_visits_histories t1
+LEFT JOIN (
+    SELECT 
+        id,
+        user_id, 
+        start_date, 
+        payment_plan_id,  
+        CASE 
+            WHEN end_date IS NULL THEN now() 
+            ELSE end_date 
+        END AS end_date 
+    FROM ddxfitness_prod_v2.pg_user_payment_plans
+) t2 ON t1.user_id = t2.user_id
+WHERE 
+    t1.event_type = 'club_out'
+    AND (t1.event_date >= t2.start_date AND t1.event_date <= t2.end_date)
+    AND t1.event_date >= subDate(current_date(), INTERVAL 1 YEAR)
+    AND formatDateTime(t1.event_date, '%T') >= '00:00:00' 
+    AND formatDateTime(t1.event_date, '%T') <= '03:00:00'
+--  AND t1.user_id = 1197876
+;
