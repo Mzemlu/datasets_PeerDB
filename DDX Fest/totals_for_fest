@@ -1,0 +1,70 @@
+-- with prepared_table as (
+-- select  (tr.updated_at + interval '3' hour)::date as date, 
+--         case when t.if_employee is null then 'Клиент' else t.if_employee end as if_employee,
+--         tp.product_name,
+--         tp.discount_id,
+--         c.name as club_name,
+--         d.name as discount_name,
+--         tr.type,
+--         sum(tp.quantity) as quantity
+-- from ddxfitness_prod_v2.pg_transaction_products tp
+-- left join ddxfitness_prod_v2.pg_transactions tr 
+--   on tp.transaction_id = tr.id
+-- left join ddxfitness_prod_v2.pg_discounts d
+--   on tp.discount_id = d.id
+-- left join ddxfitness_prod_v2.pg_club_legal_infos cli
+--   on tr.club_legal_info_id = cli.id
+-- left join ddxfitness_prod_v2.pg_clubs c 
+--   on cli.club_id = c.id
+-- left join ddxfitness_prod_v2.pg_users u
+--   on tr.user_id = u.id
+-- left join (
+--     select 
+--         user_id,
+--         case 
+--             when payment_plan_id in (1,111,152) then 'Сотрудник' 
+--             else 'Клиент' 
+--         end as if_employee
+--     from ddxfitness_prod_v2.pg_user_payment_plans
+--     where status not in ('Ended','Created','Deleted','Refunded','NonStarted')
+--       and payment_plan_id in (
+--         1,111,161,152,10,18,19,20,21,22,28,35,45,46,49,70,71,73,74,76,92,93,
+--         118,135,140,162,241,242,243,244,245,246,277,278
+--     )
+--     group by 1,2
+-- ) t
+-- on tr.user_id = t.user_id 
+-- where tp.product_id in (300, 301)
+-- group by 1,2,3,4,5,6,7
+-- )
+-- select 
+--     date, 
+--     if_employee, 
+--     product_name, 
+--     club_name,
+--     discount_id, 
+--     discount_name,
+--     type,
+--     sum(case when type = 'payment' then quantity else 0 end) as quantity, 
+--     sum(case when type = 'refund' then quantity else 0 end) as qty_refund 
+-- from prepared_table
+-- where date > '2025-01-01'
+-- group by 1,2,3,4,5,6,7;
+
+WITH main_table AS (
+    SELECT 
+        id,
+        date, 
+        if_employee, 
+        product_name, 
+        club_name,
+        discount_id, 
+        discount_name,
+        type,
+        sum(quantity) AS quantity
+    FROM ddxfitness_prod_v2.bi_ddx_fest
+    WHERE date > '2025-01-01'
+    GROUP BY 1,2,3,4,5,6,7,8
+) 
+SELECT * 
+FROM main_table;
