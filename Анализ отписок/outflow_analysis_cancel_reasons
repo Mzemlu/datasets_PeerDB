@@ -1,0 +1,23 @@
+SELECT 
+  cancel_reason, 
+  count(last_id) AS qty_reasons, 
+  min(qty_total) AS qty_total 
+FROM (
+  SELECT 
+    last_id,	
+    outflow_club_name AS club_name,  
+    upperUTF8(formatDateTime(end_date, '%b-%Y')) AS date_month_for_filter,
+    cancel_reason,
+    count(*) OVER () AS qty_total
+  FROM ddxfitness_prod_v2.inflow_and_outflow_new iaon 
+  LEFT JOIN ddxfitness_prod_v2.pg_clubs c
+    ON iaon.outflow_club_name = c.name 
+  WHERE is_outflow = 1
+    AND date_month_for_filter IN ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+    AND club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+    AND c.open_date <= iaon.end_date
+    AND date_diff('day', start_training_date, end_date) > 11
+    AND end_date >= toStartOfMonth(today()) - interval '14' MONTH
+    AND end_date <= toStartOfMonth(today()) - interval '1' day
+)
+GROUP BY 1;
