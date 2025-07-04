@@ -1,0 +1,10 @@
+SELECT 
+    toDate(event_date) AS date,
+    id,
+    user_id,
+    club_id,
+    club_name
+FROM ddxfitness_prod_v2.bi_visits_histories
+WHERE 1=1
+    AND event_type = 'club_in'
+GROUP BY 1, 2, 3, 4, 5;
