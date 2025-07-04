@@ -1,0 +1,41 @@
+WITH main AS (
+    SELECT 
+        upp.id AS id,
+        cl.name AS club_name,
+        upp.status AS status,
+        upp.discount_id,
+        CASE 
+            WHEN tr.user_payment_plan_id = 0 AND upp.discount_id = 11538 THEN 0 
+            ELSE 1 
+        END AS is_payed
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+    LEFT JOIN (
+        SELECT  
+            user_payment_plan_id,
+            MIN(updated_at + INTERVAL '3' HOUR)::date AS updated_at
+        FROM ddxfitness_prod_v2.bi_completed_transactions bct 
+        WHERE type = 'payment'
+          AND user_payment_plan_id IN (
+              SELECT id 
+              FROM ddxfitness_prod_v2.pg_user_payment_plans 
+              WHERE discount_id = 11538
+          )
+          AND total_amount >= 1700 -- стоимость ПП
+          AND provider_id IN (1, 2, 9, 10, 28, 29)
+        GROUP BY 1
+    ) tr ON upp.id = tr.user_payment_plan_id
+    WHERE upp.payment_plan_id IN (
+        SELECT id 
+        FROM ddxfitness_prod_v2.pg_d_inflow_payment_plans
+    )
+      AND upp.status NOT IN ('Ended', 'Created', 'Deleted', 'Refunded')
+      AND COALESCE(cancel_reason, '') <> 'ExcludeFromReport'
+)
+SELECT 
+    club_name, 
+    status, 
+    COUNT(*) AS total_qty, 
+    SUM(is_payed) AS is_payed
+FROM main
+GROUP BY 1, 2;
