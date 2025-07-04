@@ -1,0 +1,122 @@
+-- WITH outflow AS (
+--     SELECT 
+--         last_id, 
+--         user_id, 
+--         outflow_club_name AS club_name, 
+--         end_date,
+--         upperUTF8(formatDateTime(end_date, '%b-%Y')) AS date_month_for_filter
+--     FROM ddxfitness_prod_v2.inflow_and_outflow_new iaon 
+--     LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON iaon.outflow_club_name = c.name 
+--     WHERE is_outflow = 1
+--       AND upperUTF8(formatDateTime(end_date, '%b-%Y')) IN ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+--       AND outflow_club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+--       AND c.open_date <= iaon.end_date
+--       AND date_diff('day', start_date, end_date) > 30
+-- ),
+-- visits AS (
+--     SELECT  
+--         user_id, 
+--         toDate(event_date) AS event_date,
+--         upperUTF8(formatDateTime(event_date, '%b-%Y')) AS date_month_for_filter
+--     FROM ddxfitness_prod_v2.bi_visits_histories bvh 
+--     WHERE upperUTF8(formatDateTime(event_date, '%b-%Y')) IN ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+--     GROUP BY 1,2,3
+-- ),
+-- outflow_visits AS (
+--     SELECT  
+--         o.user_id, 
+--         o.club_name, 
+--         o.end_date, 
+--         sum(CASE WHEN event_date >= end_date - INTERVAL 4 MONTH AND event_date <= end_date THEN 1 ELSE 0 END) / 4 AS avg_visit
+--     FROM outflow o 
+--     LEFT JOIN visits v ON o.user_id = v.user_id
+--     GROUP BY 1,2,3
+-- ),
+-- group_training AS (
+--     SELECT 
+--         user_id, 
+--         toDate(start_time) AS training_date 
+--     FROM ddxfitness_prod_v2.bi_group_training_visits 
+--     WHERE is_visit_calc = 'Yes'
+--     GROUP BY 1,2
+-- )
+-- SELECT 
+--     count(user_id) AS qty_users,
+--     countIf(user_group, user_group <> 0) AS qty_users_groups,
+--     round(countIf(user_group, user_group <> 0) / count(user_id) * 100, 2) AS perc
+-- FROM (
+--     SELECT 
+--         v.user_id, 
+--         v.club_name,  
+--         g.user_id AS user_group
+--     FROM outflow_visits v
+--     LEFT JOIN group_training g ON v.user_id = g.user_id
+--     WHERE avg_visit = 0
+--     GROUP BY 1,2,3
+-- );
+
+WITH outflow AS (
+    SELECT 
+        last_id, 
+        user_id, 
+        outflow_club_name AS club_name,  
+        start_training_date AS start_date,
+        end_date,
+        upperUTF8(formatDateTime(end_date, '%b-%Y')) AS date_month_for_filter,
+        date_diff('day', start_training_date, end_date) AS days_in_contract,
+        IF(modulo(date_diff('day', start_training_date, end_date), 30.42) / 30.42 <= 0.36,
+           floor(date_diff('day', start_training_date, end_date) / 30.42),
+           ceil(date_diff('day', start_training_date, end_date) / 30.42)) AS total_months
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new iaon 
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON iaon.outflow_club_name = c.name 
+    WHERE is_outflow = 1
+      AND upperUTF8(formatDateTime(end_date, '%b-%Y')) IN ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+      AND outflow_club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+      AND c.open_date <= iaon.end_date
+      AND date_diff('day', start_training_date, end_date) > 11
+      AND end_date >= toStartOfMonth(today()) - INTERVAL 14 MONTH
+      AND end_date <= toStartOfMonth(today()) - INTERVAL 1 DAY
+),
+visits AS (
+    SELECT  
+        user_id, 
+        toDate(event_date) AS event_date,
+        upperUTF8(formatDateTime(event_date, '%b-%Y')) AS date_month_for_filter
+    FROM ddxfitness_prod_v2.bi_visits_histories 
+    GROUP BY 1,2,3
+),
+outflow_visits AS (
+    SELECT 
+        last_id, 
+        o.user_id, 
+        total_months,
+        club_name, 
+        end_date, 
+        sum(CASE WHEN event_date >= start_date AND event_date <= end_date THEN 1 ELSE 0 END) AS qty_visits,
+        qty_visits / total_months AS avg_visit
+    FROM outflow o 
+    LEFT JOIN visits v ON o.user_id = v.user_id
+    GROUP BY 1,2,3,4,5
+),
+group_training AS (
+    SELECT 
+        user_id, 
+        toDate(start_time) AS training_date 
+    FROM ddxfitness_prod_v2.bi_group_training_visits 
+    WHERE is_visit_calc = 'Yes' 
+    GROUP BY 1,2
+)
+SELECT 
+    count(DISTINCT user_id) AS qty_users,
+    countIf(user_group, user_group <> 0) AS qty_users_groups,
+    round(countIf(user_group, user_group <> 0) / count(user_id) * 100, 2) AS perc
+FROM (
+    SELECT 
+        v.user_id, 
+        v.club_name,  
+        g.user_id AS user_group
+    FROM outflow_visits v
+    LEFT JOIN group_training g ON v.user_id = g.user_id
+    WHERE avg_visit <> 0
+    GROUP BY 1,2,3
+);
