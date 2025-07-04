@@ -1,0 +1,10 @@
+SELECT 
+    toHour(event_date) AS time,
+    toDate(event_date) AS date,
+    club_name,
+    COUNT(*) AS qty
+FROM ddxfitness_prod_v2.bi_visits_histories
+WHERE 1=1
+    AND event_type = 'club_in'
+--    AND user_id = 1066782
+GROUP BY 1, 2, 3;
