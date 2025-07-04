@@ -1,0 +1,5 @@
+select id, 
+case when id in (1,18,19,22, 241,
+242,
+243) then name else 'Остальные' end as name
+from ddxfitness_prod_v2.pg_payment_plans
