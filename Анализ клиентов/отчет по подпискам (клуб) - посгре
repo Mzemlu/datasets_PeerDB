@@ -1,0 +1,45 @@
+--- не меняется ничего
+
+
+select 
+cl.name as club_name,
+upp.status as status,
+count(*) as count_sub
+from 
+user_payment_plans upp
+left join clubs cl on cl.id = upp.club_id
+where upp.payment_plan_id in 
+(    	10, --ЗАРЯДКА (1 месяц)
+        18, --Infinity (1 месяц)
+        19, --Light (1 год)
+        20, --Light (1 месяц)
+        21, --Smart (1 год)
+        22, --Smart (1 месяц)
+        28, --Infinity 1 ГОД
+        35, --HARDFOXEZ
+        45, --Infinity (3 месяца) НГ
+        46, --Infinity (6 месяцев) НГ
+        49, --Infinity 3 ТЫСЯЧИ
+        70, --Light (6 месяцев) +Лето в подарок
+        71, --Smart (6 месяцев) + Лето в подарок
+        73, --Light (3 месяц) БЧК
+        74, --Smart (3 месяц) БЧК
+        76, --Infinity КИТ 1 ГОД(но на самом деле 1 месяц)
+        92, --Родственники Сотрудников
+        93, --ФИТНЕС ЗА 999руб
+        118, --Infinity КИТ 1700р
+        135, --AllRide new
+        140, --Мытищи КК 1800
+        162, --VIP Infinity
+        241,	-- Infinity 1мес
+			242, --	Light 1месяц
+			243,	-- Smart 1месяц
+			244,	-- Light 1год
+			245, --	Smart 1год
+			246,	--Infinity 1год
+			277, -- СМАРТ Одинцово
+      278 -- ЛАЙТ Одинцово
+      )
+        and status not in ('Ended','Created','Deleted','Refunded')
+        and coalesce(cancel_reason,'') <> 'ExcludeFromReport'
+  group by 1,2
