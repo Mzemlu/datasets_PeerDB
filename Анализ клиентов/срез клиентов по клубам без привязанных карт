@@ -1,0 +1,31 @@
+SELECT
+    cl.name AS club_name,
+    upp.status AS status,
+    count(*) AS count,
+    countIf(upp.card_token_id IS NULL) AS without_card
+FROM
+    ddxfitness_prod_v2.pg_user_payment_plans upp
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+WHERE
+    upp.payment_plan_id IN (
+        10,  -- ЗАРЯДКА (1 месяц)
+        18,  -- Infinity (1 месяц)
+        20,  -- Light (1 месяц)
+        22,  -- Smart (1 месяц)
+        92,  -- Родственники Сотрудников
+        118, -- Infinity КИТ 1700р
+        135, -- AllRide new
+        140, -- Мытищи КК 1800
+        241, -- Infinity 1мес
+        242, -- Light 1месяц
+        243, -- Smart 1месяц
+        277, -- СМАРТ Одинцово
+        278  -- ЛАЙТ Одинцово
+        -- 244, -- Light 1год
+        -- 245, -- Smart 1год
+        -- 246  -- Infinity 1год
+    )
+    AND status NOT IN ('Ended', 'Created', 'Deleted', 'Refunded')
+GROUP BY
+    club_name,
+    status;
