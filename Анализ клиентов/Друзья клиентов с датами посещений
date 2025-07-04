@@ -1,0 +1,15 @@
+SELECT 
+    toString(user_id) AS user_id,
+    guest_user_id,
+    relation_type,
+    payment_plan_id,
+    club_id,
+    toDate(toTimezone(date, 'Europe/Moscow')) AS date,
+    sex,
+    is_visited,
+    name,
+    last_name,
+    club_name,
+    email,
+    guest_phone
+FROM ddxfitness_prod_v2.bi_users_friends buf;
