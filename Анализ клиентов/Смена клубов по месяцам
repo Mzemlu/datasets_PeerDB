@@ -1,0 +1,81 @@
+/*------- считаем кол-во клиентов, которые делали переход из клуба ------*/
+WITH depart AS (
+    SELECT upperUTF8(formatDateTime(s.created_at + INTERVAL 3 HOUR, '%b-%Y')) AS signed_date,
+           cl.name AS club,
+           count(*) AS count_of_depart
+    FROM ddxfitness_prod_v2.pg_payment_plans_changing_clubs s
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp 
+        ON s.user_payment_plan_id = upp.id
+    JOIN ddxfitness_prod_v2.pg_clubs cl 
+        ON cl.id = s.old_club_id
+    LEFT JOIN (
+        SELECT user_payment_plan_id,
+               min(updated_at + INTERVAL 3 HOUR)::date AS updated_at
+        FROM ddxfitness_prod_v2.bi_completed_transactions bct
+        WHERE type = 'payment'
+          AND user_payment_plan_id IN (
+              SELECT id 
+              FROM ddxfitness_prod_v2.pg_user_payment_plans 
+              WHERE discount_id = 11538
+          )
+          AND total_amount >= 1700
+          AND provider_id IN (1, 2, 9, 10, 28, 29)
+        GROUP BY 1
+    ) tr ON s.user_payment_plan_id = tr.user_payment_plan_id
+    WHERE (
+              (tr.user_payment_plan_id = 0 AND coalesce(upp.discount_id, 0) <> 11538)
+              OR 
+              (tr.user_payment_plan_id > 0 AND coalesce(upp.discount_id, 0) = 11538)
+          )
+      AND s.payment_plan_id IN (
+          SELECT id 
+          FROM ddxfitness_prod_v2.pg_d_inflow_payment_plans
+      )
+    GROUP BY signed_date, club
+),
+
+/*------- считаем кол-во клиентов, которые делали переход в клуб ------*/
+arrive AS (
+    SELECT upperUTF8(formatDateTime(s.created_at + INTERVAL 3 HOUR, '%b-%Y')) AS signed_date,
+           cl.name AS club,
+           count(*) AS count_of_arrive
+    FROM ddxfitness_prod_v2.pg_payment_plans_changing_clubs s
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp 
+        ON s.user_payment_plan_id = upp.id
+    JOIN ddxfitness_prod_v2.pg_clubs cl 
+        ON cl.id = s.new_club_id
+    LEFT JOIN (
+        SELECT user_payment_plan_id,
+               min(updated_at + INTERVAL 3 HOUR)::date AS updated_at
+        FROM ddxfitness_prod_v2.bi_completed_transactions bct
+        WHERE type = 'payment'
+          AND user_payment_plan_id IN (
+              SELECT id 
+              FROM ddxfitness_prod_v2.pg_user_payment_plans 
+              WHERE discount_id = 11538
+          )
+          AND total_amount >= 1700
+          AND provider_id IN (1, 2, 9, 10, 28, 29)
+        GROUP BY 1
+    ) tr ON s.user_payment_plan_id = tr.user_payment_plan_id
+    WHERE (
+              (tr.user_payment_plan_id = 0 AND coalesce(upp.discount_id, 0) <> 11538)
+              OR 
+              (tr.user_payment_plan_id > 0 AND coalesce(upp.discount_id, 0) = 11538)
+          )
+      AND s.payment_plan_id IN (
+          SELECT id 
+          FROM ddxfitness_prod_v2.pg_d_inflow_payment_plans
+      )
+    GROUP BY signed_date, club
+)
+
+/*----------- объединяем данные по переходам "из" и "в" клуб -----------*/
+SELECT
+    COALESCE(ar.signed_date, dp.signed_date) AS date_month_for_filter,
+    COALESCE(NULLIF(ar.club, ''), NULLIF(dp.club, '')) AS club_name,
+    COALESCE(dp.count_of_depart, 0) AS count_of_depart,
+    COALESCE(ar.count_of_arrive, 0) AS count_of_arrive
+FROM depart dp
+FULL OUTER JOIN arrive ar 
+    ON dp.club = ar.club AND dp.signed_date = ar.signed_date;
