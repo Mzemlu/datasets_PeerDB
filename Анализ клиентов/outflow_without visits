@@ -1,0 +1,50 @@
+WITH list_users AS (                            
+    SELECT 
+        user_id, 
+        first_id, -- тут без разницы брать первую или последнюю подписку, важны даты притока и оттока
+        outflow_club_name,
+        start_date, 
+        end_date 
+    FROM ddxfitness_prod_v2.inflow_and_outflow_new 
+    WHERE is_outflow = 1
+),  --- выбираем всех, кто ушел в отток
+
+visits AS (
+    SELECT 
+        user_id, 
+        event_date::date AS event_date 
+    FROM ddxfitness_prod_v2.bi_visits_histories 
+    GROUP BY 1, 2 -- смотрим посещения юзеров по дням
+),
+
+combination AS (
+    SELECT 
+        t1.user_id, 	
+        t2.event_date, 
+        t1.first_id, 
+        t1.start_date, 
+        t1.end_date,
+        CASE 
+            WHEN event_date = '1970-01-01' THEN 0
+            WHEN event_date >= start_date AND event_date <= end_date THEN 1
+            ELSE 0 
+        END AS visit_flag
+    FROM list_users t1
+    LEFT JOIN visits t2 ON t1.user_id = t2.user_id
+),
+
+visits_by_pp AS (
+    SELECT 
+        first_id 
+    FROM combination 
+    WHERE visit_flag = 1
+    GROUP BY 1
+)
+
+SELECT 
+    *, 
+    upperUTF8(formatDateTime(start_date, '%b-%Y')) AS month_year_start, 
+    upperUTF8(formatDateTime(end_date, '%b-%Y')) AS month_year_end,
+    row_number() OVER (ORDER BY extract(year FROM end_date) DESC, extract(month FROM end_date) DESC) AS rn 
+FROM list_users 
+WHERE first_id NOT IN (SELECT * FROM visits_by_pp);
