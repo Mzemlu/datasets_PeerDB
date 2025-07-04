@@ -1,0 +1,38 @@
+WITH main_table AS (
+    SELECT 
+        s.name AS club_name,
+        CASE 
+            WHEN s.name IS NOT NULL THEN concat(s.name, '-', 'Invest') 
+        END AS club_name_invest,
+        ae.acquisition_cost AS acquisition_cost,
+        ae.club_ebitda AS club_ebitda,
+        ae.club_id AS club_id,
+        ae.date_month::date AS date_month,
+        toYear(ae.date_month::date) AS date_year,
+        ae.ilon AS ilon,
+        ib.costs AS costs,
+        s.open_date AS open_date,
+        s.club_type AS club_type,
+        row_number() OVER (PARTITION BY s.club_type, s.name ORDER BY date_month::date) AS rnk
+    FROM all_expenses ae 
+    LEFT JOIN investments_by_clubs ib ON ae.club_id = ib.club_id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs s ON ae.club_id = s.id
+    WHERE date_month >= toStartOfMonth(s.open_date)
+),
+avg_calculation AS (
+    SELECT *, 
+        avg(club_ebitda) OVER (PARTITION BY rnk, club_type) AS avg_rnk,
+        median(club_ebitda) OVER (PARTITION BY rnk, club_type) AS median_rnk,
+        sum(club_ebitda) OVER (PARTITION BY club_name ORDER BY date_month) AS cumsum_club_ebitda,
+        coalesce(sum(club_ebitda) OVER (PARTITION BY club_name ORDER BY date_month) / nullif(costs, 0), 0) AS cumsum_roid,
+        max(club_ebitda) OVER (PARTITION BY rnk, club_type) AS max_ebitda_per_club_type,
+        min(club_ebitda) OVER (PARTITION BY rnk, club_type) AS min_ebitda_per_club_tupe,
+        first_value(club_name) OVER (PARTITION BY rnk, club_type ORDER BY club_ebitda DESC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS max_ebitda_club_name,
+        first_value(club_name) OVER (PARTITION BY rnk, club_type ORDER BY club_ebitda ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS min_ebitda_club_name
+),
+fin AS (
+    SELECT *,
+        avg(cumsum_roid) OVER (PARTITION BY rnk, club_type) AS avg_roid_month
+    FROM avg_calculation
+)
+SELECT * FROM fin;
