@@ -1,0 +1,99 @@
+WITH list AS (
+    SELECT
+        vh.club_id club_id,
+        vh.club_name club_name,
+        vh.user_id user_id,
+        coalesce(users.sex,'unknown') AS sex,
+        (toStartOfHour(event_date) + INTERVAL '1' hour) AS date,
+        vh.event_date AS event_date,
+        vh.event_type,
+        CASE 
+            WHEN vh.event_type = 'club_in' THEN 1 ELSE 0
+        END per_in,
+        CASE 
+            WHEN vh.event_type = 'club_out' THEN -1 ELSE 0
+        END AS per_out,
+        CASE 
+            WHEN pp.name = '' THEN 'Остальные' ELSE pp.name
+        END AS name
+    FROM ddxfitness_prod_v2.bi_visits_histories vh
+    INNER JOIN ddxfitness_prod_v2.pg_users users
+        ON users.id = vh.user_id
+    LEFT JOIN (
+        SELECT user_id, payment_plan_id
+        FROM ddxfitness_prod_v2.pg_user_payment_plans
+        WHERE payment_plan_id IN (1,18,28,19,20,21,22,241,242,243,244,245,246)
+            AND status = 'Current'
+    ) upp ON vh.user_id = upp.user_id
+    LEFT JOIN (
+        SELECT id, name FROM ddxfitness_prod_v2.pg_payment_plans
+    ) pp ON upp.payment_plan_id = pp.id
+    WHERE vh.event_type IN ('club_in', 'club_out')
+        AND toHour(event_date) >= 6
+        AND (event_date) >= '{{from_dttm}}'
+        AND (event_date) < '{{to_dttm}}'
+        AND vh.club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+),
+list_extended AS (
+    SELECT  
+        club_name,
+        CASE 
+            WHEN toHour(event_date) >= 23 THEN toStartOfHour(event_date) + INTERVAL '1' hour - INTERVAL '1' SECOND
+            ELSE date
+        END AS date,
+        (CASE 
+            WHEN toHour(event_date) >= 23 THEN toStartOfHour(event_date) + INTERVAL '1' hour - INTERVAL '1' SECOND
+            ELSE date
+        END)::date AS date_id, 
+        sex,
+        per_in,
+        per_out 
+    FROM list
+    WHERE 1 = 1 
+    {% if filter_values('name') %}
+    AND name IN ({{ "'" + "', '".join(filter_values('name')) + "'" }})
+    {% endif %}
+),
+grid AS (
+    SELECT 
+        t1.club_name, 
+        t2.date, 
+        t2.date_id, 
+        t3.sex
+    FROM
+        (SELECT club_name FROM list_extended GROUP BY 1) t1
+        CROSS JOIN (SELECT date, date_id FROM list_extended GROUP BY 1,2) t2
+        CROSS JOIN (SELECT sex FROM list_extended GROUP BY 1) t3
+),
+qty_each_hour AS (
+    SELECT
+        grid.club_name,
+        grid.date,
+        grid.date_id,
+        grid.sex,
+        sum(coalesce(le.per_in, 0)) AS total_in,
+        sum(coalesce(le.per_out, 0)) AS total_out,
+        sum(coalesce(le.per_in, 0)) + sum(coalesce(le.per_out, 0)) AS total_flow
+    FROM grid
+    LEFT JOIN list_extended le
+        ON grid.club_name = le.club_name AND grid.date = le.date AND grid.sex = le.sex
+    GROUP BY 1,2,3,4
+), 
+total_qty AS (
+    SELECT 
+        club_name,
+        date,
+        'total' AS sex,
+        sum(total_flow) OVER (PARTITION BY club_name, date_id ORDER BY date) AS qty_each_hour
+    FROM qty_each_hour
+)
+SELECT club_name, date, sex, min(qty_each_hour) AS qty_each_hour 
+FROM total_qty 
+GROUP BY 1,2,3
+UNION ALL
+SELECT 
+    club_name,
+    date,
+    sex,
+    sum(total_flow) OVER (PARTITION BY club_name, sex, date_id ORDER BY date) AS qty_each_hour
+FROM qty_each_hour;
