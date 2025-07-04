@@ -1,0 +1,28 @@
+WITH user_freeze AS (
+    SELECT
+        uf.id AS id,
+        ur.id AS user_id,
+        ur.phone AS phone,
+        ur.email AS email,
+        uf.start_date AS start_date,
+        uf.planed_end_date AS planed_end_date,
+        CASE 
+            WHEN card_token_id IS NULL THEN false
+            ELSE true
+        END AS linked_card,
+        toDate(toTimezone(upp.pay_date, 'Europe/Moscow') + toIntervalHour(3)) AS pay_date,
+        upp.previous_status AS previous_status
+    FROM
+        ddxfitness_prod_v2.pg_user_freezes uf
+        LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = uf.user_payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_users ur ON ur.id = upp.user_id
+    WHERE
+        uf.status = 'Current'
+    ORDER BY
+        1 DESC
+)
+SELECT
+    *,
+    start_date - pay_date - 10 AS diff
+FROM
+    user_freeze;
