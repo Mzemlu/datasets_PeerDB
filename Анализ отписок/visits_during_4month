@@ -1,0 +1,109 @@
+-- WITH outflow AS (
+-- 					SELECT last_id, 
+-- 							user_id, 
+-- 							outflow_club_name club_name,  
+-- 							end_date,
+-- 							upperUTF8(formatDateTime(end_date, '%b-%Y')) date_month_for_filter
+-- 					FROM inflow_and_outflow_new iaon 
+-- 					LEFT JOIN ddxfitness_prod_v2.pg_clubs c
+--       				ON iaon.outflow_club_name=c.name 
+-- 					WHERE is_outflow =1
+-- 					AND date_month_for_filter in ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+--           			AND club_name in ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+--           			AND  c.open_date<=iaon.end_date
+--                     AND date_diff('day', start_date, end_date)>30
+-- 					--AND user_id IN (166,1746174,1746146)
+-- 					),
+-- visits AS (
+-- 			SELECT 	user_id, 
+-- 					toDate(event_date) event_date,
+-- 					upperUTF8(formatDateTime(event_date, '%b-%Y')) date_month_for_filter
+-- 			FROM ddxfitness_prod_v2.bi_visits_histories bvh 
+-- 			WHERE date_month_for_filter in ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+-- 			GROUP BY 1,2,3),
+-- outflow_visits AS (
+-- 					SELECT last_id, 
+-- 							o.user_id user_id, 
+-- 							club_name, 
+-- 							end_date, 
+-- 							sum(CASE WHEN (event_date>=end_date - INTERVAL '4' month AND event_date<=end_date) THEN 1
+-- 							ELSE 0 END) /4 avg_visit
+-- 					FROM outflow o 
+-- 					LEFT JOIN visits v ON o.user_id=v.user_id
+-- 					--WHERE (event_date>=end_date - INTERVAL '4' month AND event_date<=end_date) OR event_date=''
+-- 					GROUP BY 1,2,3,4
+-- 					)
+-- 					--SELECT * FROM outflow_visits;
+-- SELECT last_id, user_id, club_name, end_date, avg_visit,
+-- CASE WHEN avg_visit=0 THEN 'не посещал'
+-- WHEN avg_visit>0 AND avg_visit<=1 THEN '0-1 раз в месяц'
+-- WHEN avg_visit>1 AND avg_visit<=2 THEN '1-2 раз в месяц'
+-- WHEN avg_visit>2 AND avg_visit<=4 THEN '2-4 раз в месяц'
+-- WHEN avg_visit>4 AND avg_visit<=6 THEN '4-6 раз в месяц'
+-- WHEN avg_visit>6 AND avg_visit<=8 THEN '6-8 раз в месяц'
+-- WHEN avg_visit>8 THEN '8+ раз в месяц'
+-- ELSE 'хз'
+-- END visits
+-- FROM outflow_visits
+-- GROUP BY 1,2,3,4,5;
+
+WITH outflow AS (
+	SELECT 
+		last_id, 
+		user_id, 
+		outflow_club_name AS club_name,  
+		start_training_date AS start_date,
+		end_date,
+		upperUTF8(formatDateTime(end_date, '%b-%Y')) AS date_month_for_filter,
+		date_diff('day', start_date, end_date) AS days_in_contract,
+		if(modulo(days_in_contract, 30.42) / 30.42 <= 0.36, floor(days_in_contract / 30.42), ceil(days_in_contract / 30.42)) AS total_months
+	FROM inflow_and_outflow_new iaon 
+	LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON iaon.outflow_club_name = c.name 
+	WHERE 
+		is_outflow = 1
+		AND date_month_for_filter IN ({{ "'" + "', '".join(filter_values('date_month_for_filter')) + "'" }})
+		AND club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+		AND c.open_date <= iaon.end_date
+		AND date_diff('day', start_date, end_date) > 11
+		AND end_date >= toStartOfMonth(today()) - INTERVAL '14' MONTH
+		AND end_date <= toStartOfMonth(today()) - INTERVAL '1' DAY
+),
+visits AS (
+	SELECT 
+		user_id, 
+		toDate(event_date) AS event_date,
+		upperUTF8(formatDateTime(event_date, '%b-%Y')) AS date_month_for_filter
+	FROM ddxfitness_prod_v2.bi_visits_histories bvh 
+	GROUP BY 1, 2, 3
+),
+outflow_visits AS (
+	SELECT 
+		last_id, 
+		o.user_id, 
+		total_months,
+		club_name, 
+		end_date, 
+		sum(CASE WHEN event_date >= start_date AND event_date <= end_date THEN 1 ELSE 0 END) AS qty_visits,
+		qty_visits / total_months AS avg_visit
+	FROM outflow o 
+	LEFT JOIN visits v ON o.user_id = v.user_id
+	GROUP BY 1, 2, 3, 4, 5
+)
+SELECT 
+	last_id, 
+	user_id, 
+	club_name, 
+	end_date, 
+	avg_visit,
+	CASE 
+		WHEN avg_visit = 0 THEN 'не посещал'
+		WHEN avg_visit > 0 AND avg_visit <= 1 THEN '0-1 раз в месяц'
+		WHEN avg_visit > 1 AND avg_visit <= 2 THEN '1-2 раз в месяц'
+		WHEN avg_visit > 2 AND avg_visit <= 4 THEN '2-4 раз в месяц'
+		WHEN avg_visit > 4 AND avg_visit <= 6 THEN '4-6 раз в месяц'
+		WHEN avg_visit > 6 AND avg_visit <= 8 THEN '6-8 раз в месяц'
+		WHEN avg_visit > 8 THEN '8+ раз в месяц'
+		ELSE 'хз'
+	END AS visits
+FROM outflow_visits
+GROUP BY 1, 2, 3, 4, 5;
