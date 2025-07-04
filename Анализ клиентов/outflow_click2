@@ -1,0 +1,28 @@
+SELECT 
+    user_id,
+    name,
+    age,
+    birthday,
+    email,
+    sex,
+    phone,
+    is_new,
+    sport_experience,
+    first_id,
+    last_id,
+    first_payment_plan_id,
+    first_payment_plan_name,
+    last_payment_plan_id,
+    last_payment_plan_name,
+    outflow_club,
+    outflow_club_name AS club_name,
+    cancel_reason,
+    --start_date,
+    upper(formatDateTime(end_date, '%b-%Y')) AS date_month_for_filter,
+    upper(formatDateTime(end_date, '%d')) AS date_day_for_filter,
+    end_date,
+    is_outflow,
+    diff_days,
+    qty_plans
+FROM ddxfitness_prod_v2.inflow_and_outflow_new 
+WHERE is_outflow = 1;
