@@ -1,0 +1,84 @@
+WITH main_table AS (
+    SELECT 
+        s.name AS club_name,
+        concat(s.name, '-', s.club_type) AS club_name_type,
+        ae.acquisition_cost AS acquisition_cost,
+        ae.club_ebitda AS club_ebitda,
+        ae.club_id AS club_id,
+        ae.date_month::date AS date_month,
+        ae.ilon AS ilon,
+        ib.costs AS costs,
+        s.open_date AS open_date,
+        s.club_type AS club_type,
+        datediff('month', s.open_date, toDate(now())) AS cnt_month_open,
+        row_number() OVER (PARTITION BY s.club_type, s.name ORDER BY date_month::date) AS rnk
+    FROM 
+        ddxfitness_prod_v2.all_expenses ae 
+    LEFT JOIN 
+        ddxfitness_prod_v2.investments_by_clubs ib ON ae.club_id = ib.club_id
+    LEFT JOIN 
+        ddxfitness_prod_v2.pg_clubs s ON ae.club_id = s.id
+    WHERE 
+        date_month >= toStartOfMonth(s.open_date)
+),
+roid_table AS (
+    SELECT *,
+        avg(club_ebitda) OVER (PARTITION BY rnk, club_type) AS avg_rnk,
+        median(club_ebitda) OVER (PARTITION BY rnk, club_type) AS median_rnk,
+        sum(club_ebitda) OVER (PARTITION BY club_name ORDER BY date_month) AS cumsum_club_ebitda,
+        CASE 
+            WHEN costs >= sum(club_ebitda) OVER (PARTITION BY club_name ORDER BY date_month) THEN 1 
+        END AS payback_period
+    FROM main_table
+),
+month_payback AS (
+    SELECT * FROM (
+        SELECT *,
+            CASE 
+                WHEN cumsum_club_ebitda < costs THEN ceil((costs - cumsum_club_ebitda) / nullif(avg(club_ebitda) OVER (PARTITION BY club_name), 0)) 
+            END AS months_to_payback,
+            min(CASE WHEN payback_period IS NULL THEN date_month END) OVER (PARTITION BY club_name) AS month_payback_date,
+            row_number() OVER (PARTITION BY club_name ORDER BY date_month DESC) AS rnk_month_payback
+        FROM roid_table
+    ) t 
+    WHERE rnk_month_payback = 1
+), 
+final_table AS (
+    SELECT 
+        club_id,
+        club_name,
+        club_name_type,
+        open_date,
+        club_type,
+        cnt_month_open,
+        k.months_to_payback,
+        k.month_payback_date,
+        CASE 
+            WHEN (sum(club_ebitda) / nullif(avg(costs), 0) < 1 OR sum(club_ebitda) / nullif(avg(costs), 0) IS NULL) THEN sum(club_ebitda) / nullif(avg(costs), 0) 
+            ELSE 1.0 
+        END AS roid,
+        CASE 
+            WHEN sum(club_ebitda) / nullif(avg(costs), 0) >= 1 THEN sum(payback_period) + 1 
+        END AS payback_period,
+        CASE 
+            WHEN payback_period IS NOT NULL THEN 'Окупился' 
+            ELSE 'В процессе' 
+        END AS flag_payback
+    FROM roid_table t 
+    LEFT JOIN month_payback k ON t.club_id = k.club_id
+    GROUP BY 
+        club_id,
+        club_name,
+        club_name_type,
+        open_date,
+        club_type,
+        cnt_month_open,
+        k.months_to_payback,
+        k.month_payback_date
+)
+SELECT 
+    club_id,
+    club_name,
+    month_payback_date
+FROM final_table
+WHERE roid = 1;
