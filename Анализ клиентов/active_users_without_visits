@@ -1,0 +1,54 @@
+WITH users AS (
+    SELECT 
+        CASE 
+            WHEN trans.updated_at::date = '1970-01-01' THEN signed_date::date  
+            ELSE trans.updated_at::date 
+        END AS start_date,
+        upp.id AS id, 
+        upp.user_id, 
+        u.phone AS phone, 
+        upp.status, 
+        upp.club_id, 
+        c.name AS club_name 
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs c 
+        ON upp.club_id = c.id
+    LEFT JOIN ddxfitness_prod_v2.pg_users u 
+        ON upp.user_id = u.id
+    LEFT JOIN (
+        SELECT
+            id AS trans_id,
+            user_payment_plan_id,
+            created_at,
+            updated_at, 
+            row_number() OVER (PARTITION BY user_payment_plan_id ORDER BY id) AS rn
+        FROM ddxfitness_prod_v2.bi_completed_transactions 
+        WHERE type = 'payment'
+    ) trans ON upp.id = trans.user_payment_plan_id AND trans.rn = 1
+    WHERE status IN ('Current', 'Freezed', 'PaymentPending', 'NotStarted')
+      AND upp.payment_plan_id IN (SELECT id FROM ddxfitness_prod_v2.pg_d_inflow_payment_plans)
+),
+visits AS (
+    SELECT 
+        user_id, 
+        max(event_date::date) AS visit_date
+    FROM ddxfitness_prod_v2.bi_visits_histories 
+    GROUP BY 1
+), 
+final_table AS (
+    SELECT 
+        t1.user_id,  
+        t1.id, 
+        t1.start_date,
+        t1.phone,
+        t1.status,
+        t1.club_name,
+        t2.visit_date
+    FROM users t1
+    LEFT JOIN visits t2
+        ON t1.user_id = t2.user_id
+    WHERE visit_date < start_date
+)
+SELECT * 
+FROM final_table 
+WHERE 1 = 1;
