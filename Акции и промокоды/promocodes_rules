@@ -1,0 +1,57 @@
+WITH payment_plans AS (
+    SELECT id, arrayStringConcat(groupArray(name), ',') AS payment_plan_name
+    FROM (
+        SELECT d.id, pp.name
+        FROM (
+            SELECT 
+                id,
+                JSONExtract(arrayJoin(JSONExtractArrayRaw(COALESCE(available_payment_plans, '[{}]'))), 'id', 'Int32') AS payment_plan_id
+            FROM ddxfitness_prod_v2.pg_discounts
+        ) d
+        INNER JOIN ddxfitness_prod_v2.pg_payment_plans pp ON d.payment_plan_id = pp.id
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    )
+    GROUP BY id
+),
+clubs AS (
+    SELECT id, arrayStringConcat(groupArray(name), ',') AS club_name
+    FROM (
+        SELECT d.id, c.name
+        FROM (
+            SELECT 
+                id,
+                JSONExtract(arrayJoin(JSONExtractArrayRaw(COALESCE(available_clubs, '[{}]'))), 'id', 'Int32') AS club_id
+            FROM ddxfitness_prod_v2.pg_discounts
+        ) d
+        INNER JOIN ddxfitness_prod_v2.pg_clubs c ON d.club_id = c.id
+        GROUP BY 1, 2
+        ORDER BY 1, 2
+    )
+    GROUP BY id
+),
+interfaces AS (
+    SELECT id, arrayStringConcat(groupArray(interface), ',') AS interface_name
+    FROM (
+        SELECT 
+            id,
+            JSONExtract(arrayJoin(JSONExtractArrayRaw(COALESCE(available_interfaces, '[{}]'))), 'name', 'String') AS interface
+        FROM ddxfitness_prod_v2.pg_discounts
+    )
+    GROUP BY id
+)
+SELECT 
+    d.id AS id,
+    d.name AS name,
+    dr.name AS discount_name,
+    d.start_date AS start_date, 
+    d.end_date AS end_date,
+    d.is_active AS is_active,
+    pp.payment_plan_name AS payment_plan_name,
+    c.club_name AS club_name,
+    i.interface_name AS interface_name
+FROM ddxfitness_prod_v2.pg_discounts d
+INNER JOIN ddxfitness_prod_v2.pg_discount_rules dr ON d.discount_rule_id = dr.id
+INNER JOIN payment_plans pp ON d.id = pp.id
+INNER JOIN clubs c ON d.id = c.id
+INNER JOIN interfaces i ON d.id = i.id;
