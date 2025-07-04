@@ -1,0 +1,9 @@
+select 
+    dc.id, 
+    dc.code, 
+    dc.discount_id, 
+    dc.is_deleted, 
+    d.name
+from ddxfitness_prod_v2.pg_discount_codes dc 
+left join ddxfitness_prod_v2.pg_discounts d 
+    on dc.discount_id = d.id;
