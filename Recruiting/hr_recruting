@@ -1,0 +1,77 @@
+WITH list_clubs AS (
+    SELECT club AS club_name
+    FROM ddxfitness_prod_v2.bi_hr_recruiting
+    GROUP BY 1
+),
+list_dates AS (
+    SELECT day_id_day
+    FROM ddxfitness_prod_v2.pg_d_day 
+    WHERE day_id_day > today() - INTERVAL 1 YEAR AND day_id_day <= today()
+),
+list_positions AS (
+    SELECT position
+    FROM ddxfitness_prod_v2.bi_hr_recruiting
+    GROUP BY 1
+),
+status_list AS (
+    SELECT 'Новая заявка' AS status
+    UNION ALL SELECT 'Отказ'
+    UNION ALL SELECT 'Принят на работу'
+    UNION ALL SELECT 'Обработка заявки (Отклик в работе-звонок, собеседование)'
+),
+source_list AS (
+    SELECT '' AS source
+    UNION ALL SELECT 'HeadHunter'
+),
+grouped_list AS (
+    SELECT club_name, day_id_day, status, source, position
+    FROM list_clubs
+    CROSS JOIN list_dates
+    CROSS JOIN list_positions
+    CROSS JOIN status_list
+    CROSS JOIN source_list
+),
+final AS (
+    SELECT 
+        t1.club_name, 
+        t1.day_id_day AS date,
+        CASE WHEN t1.source = '' THEN 'Сайт' ELSE t1.source END AS sourse, 
+        t1.status AS stage, 
+        t1.position,
+        title,
+        t2.id,
+        name
+    FROM grouped_list t1
+    LEFT JOIN ddxfitness_prod_v2.bi_hr_recruiting t2
+        ON t1.day_id_day = parseDateTimeBestEffortOrNull(t2.date)::date 
+        AND t1.club_name = t2.club 
+        AND t1.status = t2.stage
+        AND t1.source = t2.source
+        AND t1.position = t2.position
+)
+SELECT 
+    date, 
+    CASE 
+        WHEN club_name = '' OR club_name = '!Не выбрано' THEN 'Не указан'  
+        ELSE club_name 
+    END AS club_name, 
+    sourse, 
+    CASE 
+        WHEN stage = 'Обработка заявки (Отклик в работе-звонок, собеседование)' 
+        THEN 'Обработка заявки' 
+        ELSE stage 
+    END AS stage, 
+    CASE 
+        WHEN id = '' THEN 0 
+        ELSE 1 
+    END AS qty_id, 
+    id,
+    title, 
+    position,
+    CASE 
+        WHEN position LIKE '%Тренер тренажерного зала%' THEN 'Тренер тренажерного зала' 
+        WHEN position LIKE '%Тренер групповых программ%' THEN 'Тренер групповых программ'
+        WHEN position LIKE '%Сервис-менеджер%' THEN 'Сервис-менеджер'    
+        ELSE 'Прочее'
+    END AS type_position
+FROM final;
