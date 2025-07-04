@@ -1,0 +1,33 @@
+WITH revenue1 AS (
+    SELECT
+        (toStartOfHour(tr.updated_at) + INTERVAL 3 HOUR) AS date_month,
+        tr.user_id AS user_id,
+        tp.name AS desc,
+        cl.name AS club_name,
+        ds.name AS discount_name
+    FROM ddxfitness_prod_v2.pg_transactions tr
+    JOIN ddxfitness_prod_v2.pg_transaction_providers tp 
+        ON tp.id = tr.provider_id
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp 
+        ON upp.id = tr.user_payment_plan_id
+    JOIN ddxfitness_prod_v2.pg_discounts ds 
+        ON ds.id = tr.discount_id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs cl 
+        ON cl.id = upp.club_id
+    WHERE tr.status IN ('Completed', 'completed')
+      AND tr.type = 'payment'
+      AND tr.provider_id IN (
+          1, 2, 3, 6, 7, 9, 13, 24, 25, 26, 27, 28, 29, 30, 31, 34, 37, 38
+      )
+)
+SELECT
+    upperUTF8(formatDateTime(rvn.date_month, '%b-%Y')) AS date_month_for_filter,
+    CASE WHEN rvn.club_name IS NULL THEN cl.name ELSE rvn.club_name END AS club_name,
+    rvn.discount_name AS discount,
+    COUNT(*) AS count_of_discounts
+FROM revenue1 rvn
+JOIN ddxfitness_prod_v2.pg_users u1 
+    ON u1.id = rvn.user_id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs cl 
+    ON cl.id = u1.home_club_id
+GROUP BY date_month_for_filter, club_name, discount;
