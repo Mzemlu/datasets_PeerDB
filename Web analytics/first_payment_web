@@ -1,0 +1,32 @@
+SELECT 
+    bct.id AS id, 
+    total_amount, 
+    discount_amount, 
+    bct.updated_at AS date,
+    payment_plan_id,  
+    CASE 
+        WHEN upp.payment_plan_id IN (18, 241) THEN 'Infinity 1мес'
+        WHEN upp.payment_plan_id IN (20, 242) THEN 'Light 1месяц'
+        WHEN upp.payment_plan_id IN (22, 243) THEN 'Smart 1месяц'
+        ELSE pp.name 
+    END AS payment_plan
+FROM ddxfitness_prod_v2.bi_completed_transactions bct 
+INNER JOIN ddxfitness_prod_v2.pg_user_payment_plans upp 
+    ON bct.user_payment_plan_id = upp.id
+INNER JOIN ddxfitness_prod_v2.pg_payment_plans pp 
+    ON upp.payment_plan_id = pp.id
+WHERE gate_id = 5
+  AND provider_id IN (
+      6,  -- Оформление тарифного плана
+      26, -- Оформление подписки + подарочная карта
+      27  -- Оформление подписки (депозит + подарочная карта)
+  )
+  AND bct.updated_at >= '2023-01-01'
+  AND upp.payment_plan_id IN (
+      18,  --Infinity 1мес
+      20,  --Light 1месяц
+      22,  --Smart 1месяц
+      241, --Infinity 1мес
+      242, --Light 1месяц
+      243  --Smart 1месяц
+  );
