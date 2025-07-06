@@ -1,0 +1,61 @@
+WITH all_trainings AS (
+    SELECT 
+        employee_id, 
+        club_name,
+        timetable_id, 
+        count_seats,
+        club_zone,
+        start_time, 
+        toString(toWeek(start_time)) AS week, 
+        toDayOfWeek(start_time) AS weekday,
+        group_name, 
+        category_name, 
+        last_name, 
+        name,
+        count(is_visit_calc) AS qty_visitors
+    FROM ddxfitness_prod_v2.bi_group_training_visits 
+    WHERE is_visit_calc = 'Yes'
+    GROUP BY 
+        employee_id, 
+        club_name,
+        timetable_id, 
+        count_seats,
+        club_zone,
+        start_time, 
+        week, 
+        weekday,
+        group_name, 
+        category_name, 
+        last_name, 
+        name
+)
+
+SELECT 
+    t1.employee_id, 
+    t1.club_name,
+    t1.count_seats,
+    t1.club_zone,
+    t1.timetable_id, 
+    t1.start_time, 
+    t1.week, 
+    t1.weekday,
+    t1.group_name, 
+    t1.category_name, 
+    t1.last_name, 
+    t1.name,
+    concat(t1.last_name, ' ', t1.name) AS fio,
+    t1.qty_visitors, 
+    t2.duration, 
+    t2.salary, 
+    t2.salary / qty_visitors AS client_cost 
+FROM all_trainings t1 
+LEFT JOIN ddxfitness_prod_v2.bi_trainer_salary t2 
+    ON t1.timetable_id = t2.timetable_id
+WHERE t1.category_name NOT IN (
+    'Smart Start',
+    'Игра «Элиас»',
+    'Игра «Мафия»',
+    'Семинар «Женское здоровье и фитнес»', 
+    'Соревнования «Железные люди»',
+    '30 min Fullbody'
+);
