@@ -1,0 +1,15 @@
+SELECT 
+    gt.name AS training_name,
+    cl.name AS club_name,
+    concat(ur.last_name, ' ', ur.name) AS Тренер,
+    (gttt.start_time AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Moscow' AS start_time,
+    (gttt.end_time AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Moscow' AS end_time
+FROM ddxfitness_prod_v2.pg_group_training_time_tables gttt
+JOIN ddxfitness_prod_v2.pg_group_trainings gt ON gt.id = gttt.group_training_id
+JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = gttt.club_id
+JOIN ddxfitness_prod_v2.pg_group_training_employees gte ON gte.group_training_time_table_id = gttt.id
+JOIN ddxfitness_prod_v2.pg_employees emp ON emp.id = gte.employee_id
+JOIN ddxfitness_prod_v2.pg_users ur ON ur.id = emp.user_id
+WHERE gttt.is_deleted = false
+  AND gt.name NOT ILIKE '%Smart Start%'
+;
