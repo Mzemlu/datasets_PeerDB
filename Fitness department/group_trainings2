@@ -1,0 +1,58 @@
+WITH cities_list AS (
+    SELECT 
+        id, 
+        IF(name IN ('Москва','Красногорск','Мытищи','Одинцово','Химки','Зеленоград','Домодедово','Люберцы','Балашиха'), 'Москва', name) AS name
+    FROM ddxfitness_prod_v2.pg_cities
+),
+prepared_data AS (
+    SELECT 
+        gt.name AS training_name,
+        cl.name AS club_name,
+        c.name AS city_name,
+        gtc.id AS category_id,
+        gtc.name AS category_name,
+        ur.id AS trainer_id,
+        ur.last_name AS trainer_last_name,
+        ur.name AS trainer_name,
+        gttt.start_time AS start_time,
+        gttt.end_time AS end_time,
+        date_diff('minute', toDateTime(gttt.start_time), toDateTime(gttt.end_time)) + date_diff('hour', toDateTime(gttt.start_time), toDateTime(gttt.end_time)) * 60 AS duration
+    FROM ddxfitness_prod_v2.pg_group_training_time_tables AS gttt
+    JOIN ddxfitness_prod_v2.pg_group_trainings AS gt ON gt.id = gttt.group_training_id
+    JOIN ddxfitness_prod_v2.pg_clubs AS cl ON cl.id = gttt.club_id
+    INNER JOIN cities_list AS c ON cl.city_id = c.id 
+    JOIN ddxfitness_prod_v2.pg_group_training_categories AS gtc ON gt.group_training_category_id = gtc.id
+    JOIN ddxfitness_prod_v2.pg_group_training_employees AS gte ON gte.group_training_time_table_id = gttt.id
+    JOIN ddxfitness_prod_v2.pg_employees AS emp ON emp.id = gte.employee_id
+    JOIN ddxfitness_prod_v2.pg_users AS ur ON ur.id = emp.user_id
+    WHERE gttt.is_deleted = false
+      AND start_time >= '2024-01-01'
+)
+SELECT 
+    pd.training_name AS training_name, 
+    pd.club_name AS club_name, 
+    pd.city_name AS city_name,
+    pd.category_name AS category_name, 
+    tt.type AS trainer_type,
+    pd.trainer_id AS trainer_id, 
+    pd.trainer_last_name AS trainer_last_name,  
+    pd.trainer_name AS trainer_name, 
+    pd.start_time AS start_time, 
+    pd.duration AS duration,
+    multiIf(
+        category_id = 40 AND duration = 30, 0,  -- Мастер класс
+        category_id = 40 AND duration = 55, 1500,
+        category_id = 40 AND duration = 90, 2000,    
+        (training_name LIKE '%YOGA%'  OR training_name LIKE '%ЙОГА%' OR training_name LIKE '%Йога%' OR training_name LIKE '%Йога%' OR training_name LIKE '%Yoga%' OR training_name LIKE '%yoga%'), ts.yoga,
+        (training_name LIKE '%HIIT%' OR training_name LIKE '%GRIT%' OR training_name LIKE '%hiit%' OR training_name LIKE '%Hiit%' OR training_name LIKE '%Grit%' OR training_name LIKE '%grit%'), ts.grit,
+        duration = 30, ts.`30`,
+        duration = 45, ts.`45`,
+        duration = 55, ts.`55`,
+        duration = 90, ts.`90`,
+        0
+    ) AS salary
+FROM prepared_data AS pd
+LEFT JOIN ddxfitness_prod_v2.trainer_list_with_types AS tt
+    ON pd.trainer_last_name = splitByChar(' ', tt.name)[1] AND pd.trainer_name = splitByChar(' ', tt.name)[2]
+LEFT JOIN ddxfitness_prod_v2.trainer_salary AS ts 
+    ON tt.type = ts.trainer_type AND pd.city_name = ts.city;
