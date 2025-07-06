@@ -1,0 +1,24 @@
+SELECT 
+    gttt.id AS group_id, 
+    gttt.group_training_id AS group_training_id, 
+    gttt.club_id AS club_id, 
+    c.name AS club_name, 
+    (gttt.start_time + INTERVAL '3' HOUR) AS start_time,
+    (gttt.end_time + INTERVAL '3' HOUR) AS end_time, 
+    gte.employee_id AS employee_id, 
+    u.id AS id,
+    u.last_name AS last_name, 
+    u.name AS name,
+    u.middle_name AS middle_name 
+FROM ddxfitness_prod_v2.pg_group_training_time_tables gttt 
+INNER JOIN ddxfitness_prod_v2.pg_clubs c 
+    ON gttt.club_id = c.id
+LEFT JOIN ddxfitness_prod_v2.pg_group_training_employees gte 
+    ON gttt.id = gte.group_training_time_table_id
+LEFT JOIN ddxfitness_prod_v2.pg_employees e 
+    ON gte.employee_id = e.id 
+LEFT JOIN ddxfitness_prod_v2.pg_users u 
+    ON e.user_id = u.id 
+WHERE 1 = 1
+  AND start_time::date >= '2022-01-01'
+;
