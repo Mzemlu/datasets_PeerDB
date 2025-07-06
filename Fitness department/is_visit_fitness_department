@@ -1,0 +1,3 @@
+select 'Yes' is_visit
+union 
+select 'No'
