@@ -1,0 +1,1 @@
+select *  FROM 	ddxfitness_prod_v2.bi_group_training_visits bgtv ;
