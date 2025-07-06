@@ -1,0 +1,1 @@
+select * from ddxfitness_prod_v2.bi_accounting_transaction_new_version
