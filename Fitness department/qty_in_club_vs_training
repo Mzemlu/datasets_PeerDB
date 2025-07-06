@@ -1,0 +1,95 @@
+WITH 
+main_list_visits AS (
+    SELECT 
+        vh.id,
+        vh.user_id, 
+        vh.event_date,
+        vh.club_id,
+        vh.event_type,
+        c.name AS club_name,
+        toString(toWeek(event_date)) AS week 
+    FROM ddxfitness_prod_v2.bi_visits_histories vh
+    INNER JOIN ddxfitness_prod_v2.pg_clubs c 
+        ON vh.club_id = c.id
+    WHERE 
+        (event_date) >= '{{from_dttm}}'
+        AND (event_date) < '{{to_dttm}}'
+        {% if filter_values('club_name') %}
+        AND club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+        {% endif %}
+        {% if filter_values('week') %}
+        AND week IN ({{ "'" + "', '".join(filter_values('week')) + "'" }})
+        {% endif %}
+        AND event_type = 'club_in'
+),
+list_visits AS (
+    SELECT 
+        vh.id,
+        vh.user_id, 
+        toDate(vh.event_date) AS event_date,
+        vh.club_id,
+        vh.club_name,
+        upp.id,  
+        upp.payment_plan_id,  
+        COALESCE(upp.start_date, toDateTime('1970-01-01 00:00:00')) AS start_date, 
+        COALESCE(upp.end_date, today()) AS end_date 
+    FROM main_list_visits vh
+    INNER JOIN (
+        SELECT 
+            upp.id, 
+            upp.user_id,
+            upp.club_id, 
+            upp.payment_plan_id, 
+            pp.name AS payment_plan,
+            upp.start_date + INTERVAL 3 HOUR AS start_date, 
+            upp.end_date + INTERVAL 3 HOUR AS end_date
+        FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+        INNER JOIN ddxfitness_prod_v2.pg_payment_plans pp 
+            ON upp.payment_plan_id = pp.id
+        WHERE 
+            upp.status NOT IN ('Deleted', 'NotStarted')
+            AND upp.start_date >= '2023-01-01'
+            AND upp.payment_plan_id IN (18, 22, 21, 28, 243, 245, 241, 246)
+    ) upp
+        ON vh.user_id = upp.user_id 
+    WHERE 
+        vh.event_date >= start_date 
+        AND vh.event_date <= end_date
+    GROUP BY 
+        vh.id, vh.user_id, event_date, club_id, club_name,
+        upp.id, upp.payment_plan_id, start_date, end_date
+),
+group_users AS (
+    SELECT 
+        lv.event_date, 
+        lv.club_name,  
+        lv.qty_in_club, 
+        gv.qty_in_group_training,
+        gv.qty_in_group_training2
+    FROM (
+        SELECT 
+            event_date, 
+            club_name, 
+            count(DISTINCT user_id) AS qty_in_club 
+        FROM list_visits 
+        GROUP BY 1, 2
+    ) lv
+    LEFT JOIN (
+        SELECT 
+            toDate(start_time) AS date, 
+            club_name, 
+            count(DISTINCT user_id) AS qty_in_group_training,
+            count(user_id) AS qty_in_group_training2
+        FROM ddxfitness_prod_v2.bi_group_training_visits 
+        WHERE is_visit_calc = 'Yes'
+        GROUP BY 1, 2
+    ) gv 
+        ON lv.event_date = gv.date AND lv.club_name = gv.club_name
+)
+SELECT 
+    club_name,  
+    qty_in_club, 
+    qty_in_group_training,
+    qty_in_group_training2,
+    qty_in_club / qty_in_group_training - 1 AS perc
+FROM group_users;
