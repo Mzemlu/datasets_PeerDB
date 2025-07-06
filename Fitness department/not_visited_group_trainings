@@ -1,0 +1,85 @@
+WITH prepared_cte AS (
+    SELECT 
+        gtuh.user_id, 
+        gtuh.booking_status, 
+        gttt.club_id,  
+        toTimezone(gttt.start_time, 'Europe/Moscow') + toIntervalHour(3) AS start_time,
+        toTimezone(gttt.end_time, 'Europe/Moscow') + toIntervalHour(3) AS end_time,
+        toStartOfDay(toTimezone(gttt.start_time, 'Europe/Moscow') + toIntervalHour(3)) AS start_day,
+        gt.name
+    FROM ddxfitness_prod_v2.pg_group_training_users AS gtuh
+    LEFT JOIN ddxfitness_prod_v2.pg_group_training_time_tables AS gttt 
+        ON gtuh.group_training_time_table_id = gttt.id
+    LEFT JOIN ddxfitness_prod_v2.pg_group_trainings AS gt 
+        ON gttt.group_training_id = gt.id  
+    WHERE 
+        start_time >= '2024-01-01'
+        AND gtuh.booking_status IN ('booked') 
+        AND gttt.is_deleted = 0
+    GROUP BY 1,2,3,4,5,6,7
+),
+visits AS (
+    SELECT 
+        user_id, 
+        (toTimezone(event_date, 'Europe/Moscow') + toIntervalHour(3))::date AS date 
+    FROM ddxfitness_prod_v2.pg_visits_histories AS vh 
+    WHERE event_type IN ('club_in') AND event_date >= '2024-01-01'
+    GROUP BY 1,2
+),
+next_training AS (
+    SELECT 
+        user_id, 
+        booking_status, 
+        club_id, 
+        start_time, 
+        end_time, 
+        start_day,
+        leadInFrame(start_time) OVER (PARTITION BY user_id, start_day ORDER BY start_time ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS next_start_time,
+        leadInFrame(club_id) OVER (PARTITION BY user_id, start_day ORDER BY start_time ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS next_club_id,
+        name 
+    FROM prepared_cte
+),
+final AS (
+    SELECT 
+        user_id, 
+        booking_status, 
+        club_id, 
+        next_club_id,
+        start_day,
+        start_time, 
+        end_time, 
+        next_start_time, 
+        name,
+        CASE 
+            WHEN next_start_time <= '1971-01-01' THEN 0
+            WHEN start_time = next_start_time THEN 1
+            WHEN end_time > next_start_time THEN 1
+            WHEN ((end_time + INTERVAL '1' HOUR) > next_start_time) AND (club_id <> next_club_id) THEN 1
+            WHEN end_time <= next_start_time THEN 0
+            ELSE 0 
+        END AS flag_no_visit
+    FROM next_training
+    ORDER BY start_time
+)
+SELECT 
+    t1.user_id AS user_id,
+    booking_status, 
+    club_id, 
+    countIf(DISTINCT user_id, flag_no_visit = 1) AS uniq_users,
+    next_club_id,
+    start_day,
+    start_time, 
+    end_time, 
+    next_start_time, 
+    t1.name, 
+    flag_no_visit,
+    CASE WHEN t2.user_id IS NULL THEN 1 ELSE 0 END AS if_visit_number,
+    CASE WHEN t2.user_id IS NULL THEN 'Не было в клубе' ELSE 'Был в клубе' END AS if_visit,
+    t3.name AS club_name
+FROM final AS t1
+LEFT JOIN visits AS t2
+    ON t1.user_id = t2.user_id AND t1.start_day::date = t2.date
+LEFT JOIN ddxfitness_prod_v2.pg_clubs AS t3
+    ON t1.club_id = t3.id
+GROUP BY 
+    1,2,3,5,6,7,8,9,10,11,12,13,14;
