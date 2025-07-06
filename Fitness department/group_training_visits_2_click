@@ -1,0 +1,131 @@
+WITH training_list AS (
+    SELECT 
+        t2.id AS booking_id,
+        t1.id AS timetable_id,
+        t1.group_training_id AS group_training_id,
+        gt.name AS group_name,
+        gtc.name AS category_name,
+        c.name AS club_name,
+        gte.employee_id AS employee_id,
+        toDateTime(start_time, 'Europe/Moscow') + INTERVAL '3' HOUR AS start_time,
+        toDateTime(end_time, 'Europe/Moscow') + INTERVAL '3' HOUR AS end_time,
+        u.last_name AS last_name,
+        u.name AS name,
+        t2.user_id AS user_id,
+        u2.phone AS phone,
+        booking_status,
+        t2.created_at + INTERVAL '3' HOUR AS booking_date,
+        t2.updated_at + INTERVAL '3' HOUR AS updating_date
+    FROM ddxfitness_prod_v2.pg_group_training_time_tables t1
+    LEFT JOIN ddxfitness_prod_v2.pg_group_training_users t2 ON t1.id = t2.group_training_time_table_id
+    LEFT JOIN ddxfitness_prod_v2.pg_group_trainings gt ON t1.group_training_id = gt.id
+    LEFT JOIN ddxfitness_prod_v2.pg_group_training_categories gtc ON gt.group_training_category_id = gtc.id
+    INNER JOIN ddxfitness_prod_v2.pg_clubs c ON t1.club_id = c.id
+    LEFT JOIN ddxfitness_prod_v2.pg_group_training_employees gte ON t1.id = gte.group_training_time_table_id
+    LEFT JOIN ddxfitness_prod_v2.pg_employees e ON gte.employee_id = e.id
+    LEFT JOIN ddxfitness_prod_v2.pg_users u ON e.user_id = u.id
+    LEFT JOIN ddxfitness_prod_v2.pg_users u2 ON t2.user_id = u2.id
+),
+list AS (
+    SELECT 
+        vh.id AS id,
+        vh.club_id AS club_id,
+        vh.club_name AS club_name,
+        vh.user_id,
+        vh.event_date,
+        event_type
+    FROM bi_visits_histories vh
+    INNER JOIN (
+        SELECT 
+            user_id,
+            (signed_date + INTERVAL '6' HOUR) AS signed_date,
+            CASE 
+                WHEN end_date IS NULL AND status IN ('Current', 'Freezed', 'NotStarted', 'PaymentPending')
+                THEN '2099-12-31'::Date
+                ELSE (end_date + INTERVAL '6' HOUR)
+            END AS end_date
+        FROM ddxfitness_prod_v2.pg_user_payment_plans
+        WHERE payment_plan_id NOT IN (1, 111, 152, 161)
+          AND status <> 'Deleted'
+    ) upp ON vh.user_id = upp.user_id
+    WHERE event_type IN ('club_out', 'club_in')
+      AND vh.event_date::Date >= '2022-12-01'
+      AND vh.event_date BETWEEN upp.signed_date AND upp.end_date
+    GROUP BY 1,2,3,4,5,6
+),
+list_plus_next AS (
+    SELECT 
+        id,
+        club_id,
+        club_name,
+        user_id,
+        event_date AS in_date,
+        event_type,
+        leadInFrame(event_date) OVER (PARTITION BY user_id ORDER BY event_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS out_date,
+        leadInFrame(event_type) OVER (PARTITION BY user_id ORDER BY event_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS next_event
+    FROM list
+),
+visits AS (
+    SELECT 
+        t1.id,
+        t1.club_id,
+        t1.club_name,
+        t1.user_id,
+        t1.in_date,
+        t1.out_date,
+        t1.event_type,
+        CASE 
+            WHEN t1.event_type = 'club_in' AND t1.next_event = 'club_out' AND t1.in_date::Date = (t1.out_date - INTERVAL '3' HOUR)::Date THEN 1
+            ELSE 0
+        END AS is_visit
+    FROM list_plus_next t1
+    WHERE is_visit = 1
+),
+final_table AS (
+    SELECT 
+        t1.booking_id,
+        t1.timetable_id,
+        t1.employee_id,
+        t1.group_training_id,
+        t1.group_name,
+        t1.category_name,
+        t1.club_name,
+        t1.start_time,
+        t1.end_time,
+        t2.in_date,
+        t2.out_date,
+        t1.last_name,
+        t1.name,
+        t1.user_id,
+        t1.phone,
+        t1.booking_status,
+        t1.booking_date,
+        t1.updating_date,
+        CASE 
+            WHEN (t1.start_time >= t2.in_date + INTERVAL '1' MINUTE AND t1.end_time <= t2.out_date + INTERVAL '1' MINUTE) THEN 'Yes'
+            ELSE 'No'
+        END AS is_visit
+    FROM training_list t1
+    LEFT JOIN visits t2 ON t1.user_id = t2.user_id AND t1.start_time::Date = t2.in_date::Date
+    WHERE t1.start_time >= t2.in_date + INTERVAL '1' MINUTE
+      AND t1.end_time <= t2.out_date + INTERVAL '1' MINUTE
+),
+booking_result AS (
+    SELECT 
+        t1.*, 
+        is_visit,
+        CASE WHEN is_visit = '' AND booking_status = 'booked' THEN 1 ELSE 0 END AS is_visit_no,
+        CASE WHEN booking_status = 'wait_list' THEN 1 ELSE 0 END AS is_visit_waiting,
+        CASE WHEN booking_status = 'cancelled' THEN 1 ELSE 0 END AS is_visit_cancel,
+        CASE WHEN is_visit = 'Yes' AND booking_status = 'booked' THEN 1 ELSE 0 END AS is_visit_yes
+    FROM training_list t1
+    LEFT JOIN final_table t2 ON t1.booking_id = t2.booking_id
+)
+SELECT *, 
+    CASE 
+        WHEN is_visit = 'Yes' AND booking_status = 'booked' THEN 'Yes'
+        WHEN booking_status = 'waiting_list' THEN 'waiting_list'
+        WHEN booking_status = 'cancelled' THEN 'cancelled'
+        ELSE 'No'
+    END AS is_visit_calc
+FROM booking_result;
