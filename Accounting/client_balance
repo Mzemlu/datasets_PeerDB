@@ -1,0 +1,37 @@
+WITH balance_table AS (
+    SELECT
+        t.user_id,
+        CASE 
+            WHEN t.provider_id IN (3, 14, 34) THEN t.total_amount
+            ELSE t.total_amount * -1
+        END AS tr_direction,
+        t.total_amount,
+        t.provider_id,
+        tp.name
+    FROM ddxfitness_prod_v2.pg_transactions t
+    LEFT JOIN ddxfitness_prod_v2.pg_transaction_providers tp ON tp.id = t.provider_id
+    WHERE "type" = 'payment'
+      AND t.provider_id IN (3, 4, 5, 10, 12, 14, 25, 27, 29, 30, 34, 38)
+      AND t.status = 'completed'
+      AND toTimezone(t.created_at, 'Europe/Moscow') >= '2022-12-31 21:00:00'
+)
+
+SELECT
+    c.name AS club_name,
+    t.user_id AS user_id,
+    concat(u.name, ' ', u.last_name) AS "ФИО",
+    u.balance - result AS "Состояние_баланса"
+FROM (
+    SELECT
+        t.user_id,
+        SUM(t.tr_direction) AS result
+    FROM balance_table t
+    GROUP BY t.user_id
+) t
+LEFT JOIN ddxfitness_prod_v2.pg_users u ON u.id = t.user_id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = u.home_club_id
+WHERE 1=1
+{% if filter_values('club_name')|length %}
+    AND club_name IN {{ filter_values('club_name') | where_in }}
+{% endif %}
+;
