@@ -1,0 +1,7 @@
+select event_date as date,
+		id,
+		user_id ,
+		club_id,
+		club_name
+from ddxfitness_prod_v2.bi_visits_histories bvh 
+where event_type = 'club_in'
