@@ -1,0 +1,68 @@
+SELECT 
+    upp.last_upp_id AS Ид_контракта,
+    upp.user_id AS user_id,
+    upp.Статус_членства,
+    CONCAT(u.name, ' ', u.last_name) AS ФИО,
+    c.name AS club_name,
+    upp2.signed_date + INTERVAL '3 hours' AS Дата_оформления,
+    upp2.start_date + INTERVAL '3 hours' AS Дата_начала,
+    upp2.end_date + INTERVAL '3 hours' AS Дата_окончания,
+    pp2.membership_fee AS Абонентская_плата,
+    pp2.interval_type AS Интервал_оплаты,
+    pp2.name AS Наименование_подписки
+FROM (
+    SELECT
+        last_mark,
+        last_upp_id,
+        user_id,
+        last_club_id,
+        last_upp_status,
+        CASE 
+            WHEN last_upp_status = 'Ended' THEN 'Завершен'
+            WHEN last_upp_status = 'Current' THEN 'Действует'
+            WHEN last_upp_status = 'Freezed' THEN 'Заморожен'
+            WHEN last_upp_status = 'NotStarted' THEN 'Не_начат'
+            WHEN last_upp_status = '0' THEN '0'
+        END AS Статус_членства
+    FROM (
+        SELECT 
+            LAST_VALUE(upp.mark) OVER (
+                PARTITION BY upp.user_id 
+                ORDER BY upp.mark, upp.signed_date 
+                ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+            ) AS last_mark,
+            LAST_VALUE(upp.id) OVER (
+                PARTITION BY upp.user_id 
+                ORDER BY upp.mark, upp.signed_date 
+                ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+            ) AS last_upp_id,
+            LAST_VALUE(upp.club_id) OVER (
+                PARTITION BY upp.user_id 
+                ORDER BY upp.mark, upp.signed_date 
+                ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+            ) AS last_club_id,
+            LAST_VALUE(upp.status) OVER (
+                PARTITION BY upp.user_id 
+                ORDER BY upp.mark, upp.signed_date 
+                ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+            ) AS last_upp_status,
+            upp.user_id
+        FROM (
+            SELECT 
+                CASE 
+                    WHEN upp.status IN ('Current', 'PaymentPending', 'Freezed', 'NotStarted') THEN 1 
+                    ELSE 0 
+                END AS mark,
+                upp.*
+            FROM ddxfitness_prod_v2.pg_user_payment_plans AS upp
+            LEFT JOIN ddxfitness_prod_v2.pg_payment_plans AS pp 
+                ON pp.id = upp.payment_plan_id
+            WHERE pp.payment_plan_type = 'subscription'
+        ) upp
+    ) upp
+    GROUP BY 1, 2, 3, 4, 5
+) upp
+LEFT JOIN ddxfitness_prod_v2.pg_users AS u ON u.id = upp.user_id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs AS c ON c.id = upp.last_club_id
+LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans AS upp2 ON upp2.id = upp.last_upp_id
+LEFT JOIN ddxfitness_prod_v2.pg_payment_plans AS pp2 ON upp2.payment_plan_id = pp2.id;
