@@ -1,0 +1,62 @@
+SELECT 
+    actr.transaction_id AS transaction_id,
+    --tr.club_legal_info_id,
+    cl.name AS club_name,
+    --actr.club_id, 
+    actr.created_at + INTERVAL '3' hour AS date,
+    --actr.provider_id,
+    CASE 
+        WHEN actr.provider_id = 0 THEN '0' 
+        WHEN actr.provider_id = 1 THEN 'Рекуррентная оплата подписки'
+        WHEN actr.provider_id = 2 THEN 'Оплата подписки' 
+        WHEN actr.provider_id = 6 THEN 'Регистрация подписки'
+        WHEN actr.provider_id = 3 THEN 'Пополнение баланса'
+        WHEN actr.provider_id = 5 THEN 'Покупка с баланса'
+        WHEN actr.provider_id = 7 THEN 'Покупка продукта'
+        WHEN actr.provider_id = 8 THEN 'Возврат подписки'
+        WHEN actr.provider_id = 9 THEN 'Смена подписки'
+        WHEN actr.provider_id = 11 THEN 'Возврат покупки'
+        WHEN actr.provider_id = 12 THEN 'Покупка заморозки с депозита'
+        WHEN actr.provider_id = 13 THEN 'Покупка заморозки с карты'
+        WHEN actr.provider_id = 14 THEN 'Возврат покупки заморозки с депозита'
+        WHEN actr.provider_id = 15 THEN 'Возврат покупки заморозки с карты'
+        WHEN actr.provider_id = 16 THEN 'Смена платежной карты'
+        WHEN actr.provider_id = 17 THEN 'Регистрация подписки с баланса'
+        WHEN actr.provider_id = 18 THEN 'Возврат покупки с депозита'
+        WHEN actr.provider_id = 19 THEN 'Возврат подписки с депозита'
+    END AS operation_name,
+    --tp.name as Наименование_операции, 
+    actr.type AS transaction_type,
+    actr.user_id,
+    CONCAT(u.name, ' ', u.last_name) AS name,
+    actr.payment_plan_name AS subscription_name,
+    actr.join_fee,
+    actr.join_fee_net,
+    actr.membership_fee,
+    actr.membership_fee_net,
+    CASE 
+        WHEN actr.payment_plan_tax = 0 THEN '0' 
+        WHEN actr.payment_plan_tax = 1 THEN 'ставка НДС 20%' 
+        WHEN actr.payment_plan_tax = 6 THEN 'НДС не облагается' 
+    END AS vat,
+    actr.product_name AS product_name,
+    actr.product_quantity AS product_qty,
+    actr.product_price AS product_price,
+    actr.product_total_amount AS total_amount,
+    actr.product_total_amount_net AS total_net,
+    CASE 
+        WHEN actr.product_tax = 0 THEN '0' 
+        WHEN actr.product_tax = 1 THEN 'ставка НДС 20%' 
+        WHEN actr.product_tax = 6 THEN 'НДС не облагается' 
+    END AS vat_num,
+    actr.deposit_amount AS balance,
+    tr.receipt_id AS receipt
+FROM ddxfitness_prod_v2.pg_accounting_transactions actr
+LEFT JOIN ddxfitness_prod_v2.pg_users u ON actr.user_id = u.id
+LEFT JOIN ddxfitness_prod_v2.pg_transactions tr ON actr.transaction_id = tr.id
+LEFT JOIN ddxfitness_prod_v2.pg_club_legal_infos cli ON tr.club_legal_info_id = cli.id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cli.club_id = cl.id
+where 
+1=1
+--and actr.created_at between '2023-08-31 21:59:00'  AND '2023-09-30 21:59:00'
+and actr.is_deleted = false;
