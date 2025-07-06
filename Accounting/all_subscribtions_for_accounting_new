@@ -1,0 +1,69 @@
+WITH last_value_users AS (
+    SELECT
+        last_mark,
+        last_upp_id,
+        user_id,
+        last_club_id,
+        last_upp_status,
+        CASE 
+            WHEN last_upp_status = 'Ended' THEN 'Завершен'
+            WHEN last_upp_status = 'Current' THEN 'Действует'
+            WHEN last_upp_status = 'Freezed' THEN 'Заморожен'
+            WHEN last_upp_status = 'NotStarted' THEN 'Не_начат'
+            WHEN last_upp_status = 'PaymentPending' THEN 'Ожидание оплаты'
+            WHEN upp.last_upp_status = '0' THEN '0'
+        END AS status_payment
+    FROM (
+        SELECT
+            upp.user_id,
+            MAX(upp.mark) AS last_mark,
+            MAX(upp.id) AS last_upp_id,
+            MAX(upp.club_id) AS last_club_id,
+            MAX(upp.status) AS last_upp_status
+        FROM (
+            SELECT
+                s.user_id,
+                CASE 
+                    WHEN s.status IN ('Current', 'PaymentPending', 'Freezed', 'NotStarted') THEN 1
+                    ELSE 0
+                END AS mark,
+                s.id,
+                s.club_id,
+                s.status,
+                s.signed_date
+            FROM ddxfitness_prod_v2.pg_user_payment_plans s
+            LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON s.payment_plan_id = pp.id
+            WHERE pp.payment_plan_type = 'subscription'
+        ) upp
+        WHERE (upp.user_id, upp.signed_date) IN (
+            SELECT user_id, MAX(signed_date)
+            FROM ddxfitness_prod_v2.pg_user_payment_plans
+            WHERE payment_plan_id IN (
+                SELECT id
+                FROM ddxfitness_prod_v2.pg_payment_plans
+                WHERE payment_plan_type = 'subscription'
+            )
+            GROUP BY user_id
+        )
+        GROUP BY upp.user_id
+    ) upp
+)
+
+SELECT
+    upp.last_upp_id AS "Ид_контракта",
+    upp.user_id AS user_id,
+    upp.status_payment AS "Статус_членства",
+    CONCAT(u.name, ' ', u.last_name) AS "ФИО",
+    c.name AS club_name,
+    toTimezone(upp2.signed_date, 'Europe/Moscow') + toIntervalHour(3) AS "Дата_оформления",
+    toTimezone(upp2.start_date, 'Europe/Moscow') + toIntervalHour(3) AS "Дата_начала",
+    toTimezone(upp2.end_date, 'Europe/Moscow') + toIntervalHour(3) AS "Дата_окончания",
+    pp2.membership_fee AS "Абонентская_плата",
+    pp2.interval_type AS "Интервал_оплаты",
+    pp2.name AS "Наименование_подписки"
+FROM last_value_users upp
+LEFT JOIN ddxfitness_prod_v2.pg_users u ON u.id = upp.user_id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = upp.last_club_id
+LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp2 ON upp2.id = upp.last_upp_id
+LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp2 ON upp2.payment_plan_id = pp2.id
+;
