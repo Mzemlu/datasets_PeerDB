@@ -1,0 +1,100 @@
+SELECT
+    toDate(i.InstallDateTime) AS install_date,  -- Дата установки по дням
+    toStartOfMonth(i.InstallDateTime) AS install_month,  -- Месяц установки
+    i.OSName,  -- ОС (Android или iOS)
+    COUNT(*) AS installations_count,  -- Общее количество установок
+    
+    -- Количество зарегистрированных пользователей
+    COUNTIf(
+        (i.OSName = 'android' AND i.GoogleAID IN (
+            SELECT DISTINCT GoogleAID
+            FROM mobile_db.events_all
+            WHERE EventName = 'registration_confirm'
+            AND AppID = 4433968
+        ))
+        OR (i.OSName = 'ios' AND i.IFV IN (
+            SELECT DISTINCT IFV
+            FROM mobile_db.events_all
+            WHERE EventName = 'registration_confirm'
+            AND AppID = 4433968
+        ))
+    ) AS registered_users_count, 
+    
+    -- Количество неактивных пользователей
+    COUNTIf(
+        (i.OSName = 'android' AND i.GoogleAID IN (
+            SELECT DISTINCT GoogleAID
+            FROM mobile_db.events_all
+            WHERE EventName = 'registration_confirm'
+            AND AppID = 4433968
+        ) AND i.GoogleAID NOT IN (
+            SELECT DISTINCT GoogleAID
+            FROM mobile_db.events_all
+            WHERE EventName IN ('buy_ticket_success', 'group_training_booking_success', 'subscription_pay')
+            AND AppID = 4433968
+        ))
+        OR (i.OSName = 'ios' AND i.IFV IN (
+            SELECT DISTINCT IFV
+            FROM mobile_db.events_all
+            WHERE EventName = 'registration_confirm'
+            AND AppID = 4433968
+        ) AND i.IFV NOT IN (
+            SELECT DISTINCT IFV
+            FROM mobile_db.events_all
+            WHERE EventName IN ('buy_ticket_success', 'group_training_booking_success', 'subscription_pay')
+            AND AppID = 4433968
+        ))
+    ) AS no_activity_after_registration, 
+    
+    -- Процент неактивных пользователей
+    ROUND(
+        (
+            COUNTIf(
+                (i.OSName = 'android' AND i.GoogleAID IN (
+                    SELECT DISTINCT GoogleAID
+                    FROM mobile_db.events_all
+                    WHERE EventName = 'registration_confirm'
+                    AND AppID = 4433968
+                ) AND i.GoogleAID NOT IN (
+                    SELECT DISTINCT GoogleAID
+                    FROM mobile_db.events_all
+                    WHERE EventName IN ('buy_ticket_success', 'group_training_booking_success', 'subscription_pay')
+                    AND AppID = 4433968
+                ))
+                OR (i.OSName = 'ios' AND i.IFV IN (
+                    SELECT DISTINCT IFV
+                    FROM mobile_db.events_all
+                    WHERE EventName = 'registration_confirm'
+                    AND AppID = 4433968
+                ) AND i.IFV NOT IN (
+                    SELECT DISTINCT IFV
+                    FROM mobile_db.events_all
+                    WHERE EventName IN ('buy_ticket_success', 'group_training_booking_success', 'subscription_pay')
+                    AND AppID = 4433968
+                ))
+            )
+        ) / 
+        COUNTIf(
+            (i.OSName = 'android' AND i.GoogleAID IN (
+                SELECT DISTINCT GoogleAID
+                FROM mobile_db.events_all
+                WHERE EventName = 'registration_confirm'
+                AND AppID = 4433968
+            ))
+            OR (i.OSName = 'ios' AND i.IFV IN (
+                SELECT DISTINCT IFV
+                FROM mobile_db.events_all
+                WHERE EventName = 'registration_confirm'
+                AND AppID = 4433968
+            ))
+        ), 2
+    ) AS inactivity_percentage
+FROM 
+    mobile_db.installations_all_all i
+WHERE 
+    i.InstallDateTime IS NOT NULL
+    AND i.OSName IN ('android', 'ios')  -- Фильтрация по операционной системе
+GROUP BY 
+    install_date, install_month, i.OSName 
+ORDER BY 
+    install_date ASC;
