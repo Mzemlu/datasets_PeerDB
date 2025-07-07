@@ -1,0 +1,33 @@
+SELECT 
+    (tr.updated_at at time zone 'UTC' at time zone 'Europe/Moscow')::date AS payment_date,
+    CASE 
+        WHEN tr.payment_service_id = 1 THEN 'Internal'
+        WHEN tr.payment_service_id = 2 THEN 'CloudPayments'
+        WHEN tr.payment_service_id = 3 THEN 'PayRU'
+        WHEN tr.payment_service_id = 4 THEN 'Sberbank'
+        ELSE 'other' 
+    END AS payment_service,
+    EXTRACT(MONTH FROM tr.updated_at at time zone 'UTC' at time zone 'Europe/Moscow') AS month,
+    EXTRACT(DAY FROM tr.updated_at at time zone 'UTC' at time zone 'Europe/Moscow') AS day,
+
+    SUM(CASE WHEN tr.provider_id = 1 THEN tr.total_amount END) AS recurrent,
+    SUM(CASE WHEN tr.provider_id IN (2,28) THEN tr.total_amount END) AS manual_subscription_payment,
+    SUM(CASE WHEN tr.provider_id IN (3,24,25,34) THEN tr.total_amount END) AS deposit,
+    SUM(CASE WHEN tr.provider_id IN (6,26,27,29,37,38) THEN tr.total_amount END) AS subscription_registration,
+    SUM(CASE WHEN tr.provider_id IN (7,30,31) THEN tr.total_amount END) AS purchase_of_goods_from_the_card,
+    SUM(CASE WHEN tr.provider_id = 9 THEN tr.total_amount END) AS upgrade,
+    SUM(CASE WHEN tr.provider_id = 13 THEN tr.total_amount END) AS freezing_from_the_card,
+    SUM(CASE WHEN tr.provider_id = 16 THEN tr.total_amount END) AS payment_card_change,
+    SUM(tr.total_amount) AS total_amount
+
+FROM ddxfitness_prod_v2.pg_transactions tr 
+JOIN ddxfitness_prod_v2.pg_transaction_providers tp ON tp.id = tr.provider_id
+LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = tr.user_payment_plan_id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+WHERE tr.status IN ('Completed','completed')
+  AND tr.type = 'payment'
+  AND tr.provider_id IN (
+      1, 2, 3, 6, 7, 9, 13, 16, 24, 25, 26, 27, 28, 29, 30, 31, 34, 37, 38
+  )
+GROUP BY 1,2,3,4
+ORDER BY 1 DESC;
