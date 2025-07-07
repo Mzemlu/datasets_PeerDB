@@ -1,0 +1,12 @@
+SELECT 
+    DATE_TRUNC('month', SessionStartDate) as month,
+    COUNT(DISTINCT 
+          COALESCE(NULLIF(GoogleAID, ''), 
+                   NULLIF(IFA, ''), 
+                   DeviceID)
+      ) as MAU
+FROM mobile_db.sessions_starts_all
+WHERE AppID = 4433968
+--WHERE SessionStartDate BETWEEN '2024-06-18' AND '2024-07-18'
+GROUP BY DATE_TRUNC('month', SessionStartDate)
+ORDER BY month
