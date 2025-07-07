@@ -1,0 +1,63 @@
+/*Смотрим end_date по каждой подписке*/
+WITH extraction AS (
+    SELECT
+        id,
+        user_id,
+        CASE
+            WHEN status = 'Refunded' AND previous_status = 'Current' THEN coalesce(
+                refund_date,
+                IF(
+                    formatDateTime(cancel_date, '%H:%M:%S') = '20:59:59',
+                    toDate(addSeconds(toDateTime(cancel_date), 1) + INTERVAL 6 HOUR),
+                    toDate(toDateTime(cancel_date) + INTERVAL 6 HOUR)
+                ),
+                toDate(toDateTime(end_date) + INTERVAL 6 HOUR)
+            )
+            WHEN status = 'Refunded' THEN coalesce(
+                IF(
+                    formatDateTime(cancel_date, '%H:%M:%S') = '20:59:59',
+                    toDate(addSeconds(toDateTime(cancel_date), 1) + INTERVAL 6 HOUR),
+                    toDate(toDateTime(cancel_date) + INTERVAL 6 HOUR)
+                ),
+                toDate(toDateTime(end_date) + INTERVAL 6 HOUR)
+            )
+            ELSE IF(
+                formatDateTime(end_date, '%H:%M:%S') = '20:59:59',
+                toDate(addSeconds(toDateTime(end_date), 1) + INTERVAL 6 HOUR),
+                toDate(toDateTime(end_date) + INTERVAL 6 HOUR)
+            )
+        END AS end_date
+    FROM ddxfitness_prod_v2.pg_user_payment_plans AS upp
+    LEFT JOIN (
+        SELECT
+            user_payment_plan_id,
+            toDate(toDateTime(created_at) + INTERVAL 6 HOUR) AS refund_date,
+            row_number() OVER (PARTITION BY user_payment_plan_id ORDER BY id DESC) AS rn
+        FROM ddxfitness_prod_v2.pg_transactions
+        WHERE NOT is_deleted AND type != 'payment'
+    ) AS t_refund ON upp.id = t_refund.user_payment_plan_id AND t_refund.rn = 1
+    WHERE payment_plan_id IN (SELECT id FROM d_inflow_payment_plans)
+      AND status NOT IN ('Created', 'Deleted')
+      AND ifNull(cancel_reason, '') != 'ExcludeFromReport'
+)
+SELECT
+    ch.user_id AS user_id,
+    toTimezone(ch.created_at, 'Europe/Moscow') + toIntervalHour(3) AS created_at,
+    ch.user_payment_plan_id,
+    ch.payment_plan_id,
+    s.name AS old_name_club,
+    ci_old.name AS city_old,
+    c.name AS new_name_club,
+    ci_new.name AS city_new,
+    n.end_date AS end_date,
+    CASE 
+        WHEN toDate(toTimezone(ch.created_at, 'Europe/Moscow') + toIntervalHour(3)) = toDate(n.end_date) THEN 'yes' 
+        ELSE 'no' 
+    END AS flaq
+FROM ddxfitness_prod_v2.pg_payment_plans_changing_clubs ch
+LEFT JOIN ddxfitness_prod_v2.pg_clubs s ON ch.old_club_id = s.id
+INNER JOIN ddxfitness_prod_v2.pg_cities ci_old ON s.city_id = ci_old.id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON ch.new_club_id = c.id
+INNER JOIN ddxfitness_prod_v2.pg_cities ci_new ON c.city_id = ci_new.id
+LEFT JOIN extraction n ON ch.user_payment_plan_id = n.id
+WHERE ch.payment_plan_id IN (SELECT id FROM d_inflow_payment_plans);
