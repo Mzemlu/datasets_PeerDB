@@ -1,0 +1,72 @@
+SELECT 
+    upp.id AS user_payment_plan_id, 
+    upp.discount_code_id AS discount_code_id, 
+    dc.code AS code, 
+    tr.discount_amount, 
+    ci.name AS city_name,
+    cl.name AS club_name, 
+    upp.user_id AS user_id,
+    concat(ur.name, ' ', ur.last_name) AS user_name,
+    replace(extractAll(ifNull(ur.phone, ''), '\\+?[0-9]+')[1], '+', '') AS phone,
+    ur.email AS email,
+    ur.sex AS sex,
+    pp.name AS payment_name,
+    toTimezone(upp.signed_date, 'Europe/Moscow') AS signed_date,
+    upp.status AS status,
+    d.name AS discount_name,
+    case when ur.is_deleted = 1 then 'Да' else 'Нет' end AS flaq_delete_acc,
+    age('year',
+        multiIf(birthday IS NULL, NULL, 
+        cast(birthday, 'UInt16') >= 39969, 
+        cast(cast(birthday, 'UInt16') - 65536, 'date32'), 
+        birthday), now()) AS age,
+    tr.discount_code_id AS discount_code_id_tr,
+    dc2.code AS code_tr,
+    d2.name AS discount_name_tr,
+    CASE 
+        WHEN discount_name LIKE '%Getblogger 04.2024%' THEN 'Getblogger 04.2024'
+        WHEN discount_name LIKE '%Getblogger 05.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%Getblogger 06.2024%' THEN 'Getblogger 06.2024'
+        WHEN discount_name LIKE '%Getblogger 07.2024%' THEN 'Getblogger 07.2024'
+        WHEN discount_name LIKE '%Getblogger 08.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%Getblogger 09.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%Getblogger 10.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%Getblogger 11.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%Getblogger 12.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%GB именные 09.2024%' THEN 'GB именные 09.2024'
+        WHEN discount_name LIKE '%Perfluence 06.2024%' THEN 'Perfluence 06.2024'
+        WHEN discount_name LIKE '%Perfluence 10.2024%' THEN 'Perfluence 10.2024'
+        WHEN discount_name LIKE '%Perfluence 11.2024%' THEN 'Perfluence 11.2024'
+        ELSE discount_name
+    END AS discount_name_new
+FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+INNER JOIN ddxfitness_prod_v2.pg_cities ci ON cl.city_id = ci.id
+LEFT JOIN ddxfitness_prod_v2.pg_users ur ON ur.id = upp.user_id
+LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON upp.payment_plan_id = pp.id
+LEFT JOIN ddxfitness_prod_v2.pg_discounts d ON upp.discount_id = d.id
+LEFT JOIN ddxfitness_prod_v2.pg_discount_codes dc ON dc.id = upp.discount_code_id 
+LEFT JOIN (
+    SELECT 
+        user_payment_plan_id, 
+        discount_amount,
+        discount_code_id,
+        discount_id
+    FROM (
+        SELECT 
+            ROW_NUMBER() OVER (PARTITION BY user_payment_plan_id ORDER BY id) AS rn, 
+            id, 
+            discount_id, 
+            discount_amount, 
+            user_payment_plan_id,
+            discount_code_id
+        FROM ddxfitness_prod_v2.bi_completed_transactions bct 
+        WHERE user_payment_plan_id <> 0
+        AND provider_id IN (6, 17, 20, 21, 26, 27)
+    )
+    WHERE rn = 1
+) tr ON upp.id = tr.user_payment_plan_id
+LEFT JOIN ddxfitness_prod_v2.pg_discount_codes dc2 ON dc2.id = tr.discount_code_id  
+LEFT JOIN ddxfitness_prod_v2.pg_discounts d2 ON d2.id = tr.discount_id 
+WHERE upp.status IN ('Current', 'Freezed', 'NotStarted') 
+  AND upp.payment_plan_id NOT IN (1, 14, 23, 88, 94, 103, 110, 111, 115, 119, 123, 152, 160, 161, 163, 200, 201, 208);
