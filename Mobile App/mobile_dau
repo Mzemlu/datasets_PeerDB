@@ -1,0 +1,13 @@
+SELECT
+    SessionStartDate as date,
+    COUNT(DISTINCT 
+        COALESCE(NULLIF(GoogleAID, ''), 
+                 NULLIF(IFA, ''), 
+                 DeviceID)
+    ) as DAU
+FROM mobile_db.sessions_starts_all
+WHERE SessionStartDate > '2024-6-26'
+AND AppID = 4433968
+--WHERE SessionStartDate BETWEEN '2024-06-27' AND '2024-07-18'
+GROUP BY SessionStartDate
+ORDER BY SessionStartDate
