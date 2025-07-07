@@ -1,0 +1,50 @@
+WITH cte AS (
+    SELECT tr.id,
+           tr.updated_at AS payment_date,
+           tr.type AS type,
+           tr.version_updated_at,
+           tr.payment_service_id AS payment_service_id,
+           tr.total_amount AS total_amount,
+           CASE WHEN tr.provider_id IN (20,21) THEN t.provider_id ELSE tr.provider_id END AS provider_id
+    FROM ddxfitness_prod_v2.bi_completed_transactions tr
+    LEFT JOIN ddxfitness_prod_v2.pg_transactions t ON tr.id = t.id
+    JOIN ddxfitness_prod_v2.pg_transaction_providers tp ON tp.id = tr.provider_id
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = tr.user_payment_plan_id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+    WHERE tr.type = 'payment'
+),
+max_revenue AS (
+    SELECT
+        CASE 
+            WHEN version_updated_at <= '2024-01-10' THEN (payment_date - INTERVAL '3' HOUR)::date
+            ELSE payment_date::date
+        END AS payment_date,
+        SUM(total_amount) AS total_amount_all
+    FROM cte
+    WHERE provider_id IN (
+        1,   -- Рекуррентная оплата тарифного плана
+        2,   -- Ручная оплата тарифного плана
+        3,   -- Пополнение депозита
+        6,   -- Оформление тарифного плана
+        7,   -- Покупка по карте
+        9,   -- Upgrade тарифного плана
+        13,  -- Покупка заморозки по карте
+        24,  -- Покупка подарочной карты
+        25,  -- Покупка подарочной карты с депозита
+        26,  -- Оформление подписки + ПК
+        27,  -- Оформление подписки (депозит + ПК)
+        28,  -- Ручная оплата подписки + ПК
+        29,  -- Оплата подписки (депозит + ПК)
+        30,  -- Покупка (депозит + ПК)
+        31,  -- Покупка (карта + ПК)
+        34,  -- Пополнение депозита с подарочной карты
+        37,  -- Оплата подписки (ПК)
+        38   -- Оплата подписки (депозит + ПК)
+    )
+    GROUP BY 1
+)
+SELECT * 
+FROM max_revenue
+WHERE payment_date > '2022-12-13'
+ORDER BY total_amount_all DESC
+LIMIT 1;
