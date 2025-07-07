@@ -1,0 +1,4 @@
+select DeviceID, EventDate, EventName 
+from mobile_db.events_all ea  
+WHERE AppID = 4433968
+;
