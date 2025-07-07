@@ -1,0 +1,5 @@
+select 'male' as sex
+UNION 
+select 'female' as sex
+union
+select 'не указан'
