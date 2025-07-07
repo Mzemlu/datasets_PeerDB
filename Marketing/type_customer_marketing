@@ -1,0 +1,5 @@
+SELECT 'НЧК' is_new, 'Переоформление' type
+union all
+SELECT 'БЧК', 'Новый'
+union all
+Select '-','-'
