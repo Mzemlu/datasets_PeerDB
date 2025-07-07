@@ -1,0 +1,11 @@
+select 'Ended' status 
+UNION ALL
+select 'Refunded'
+UNION all
+select 'Freezed'
+UNION all
+select 'Current'
+UNION all
+select 'PaymentPending'
+UNION all
+select 'NotStarted'
