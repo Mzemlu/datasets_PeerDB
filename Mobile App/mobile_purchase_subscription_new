@@ -1,0 +1,34 @@
+SELECT 
+    event_name, 
+    event_date, 
+    sex, 
+    club_name, 
+    payment_plan_name AS payment_plan, 
+    status, 
+    CASE 
+        WHEN date_diff('year', birthday, today()) BETWEEN 16 AND 19 THEN '16-19'
+        WHEN date_diff('year', birthday, today()) BETWEEN 20 AND 24 THEN '20-24'
+        WHEN date_diff('year', birthday, today()) BETWEEN 25 AND 29 THEN '25-29'
+        WHEN date_diff('year', birthday, today()) BETWEEN 30 AND 34 THEN '30-34'
+        WHEN date_diff('year', birthday, today()) BETWEEN 35 AND 39 THEN '35-39'
+        WHEN date_diff('year', birthday, today()) BETWEEN 40 AND 44 THEN '40-44'
+        WHEN date_diff('year', birthday, today()) BETWEEN 45 AND 50 THEN '45-50'
+        ELSE 'старше 50'
+    END AS age, 
+    count(*) AS qty 
+FROM ddxfitness_prod_v2.bi_all_mobile_events
+WHERE 
+    event_name IN (
+        'price_page_open',
+        'create_subscription_request',
+        'subscription_purchase_request'
+    )
+    OR event_name LIKE '%pay_success%'
+GROUP BY 
+    event_name, 
+    event_date, 
+    sex, 
+    club_name, 
+    payment_plan_name, 
+    status,
+    age;
