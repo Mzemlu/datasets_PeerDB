@@ -1,0 +1,145 @@
+WITH
+distinct_events AS (
+    SELECT DISTINCT 
+        e.device_id,
+        e.user_id,
+        e.event_datetime,
+        e.event_name
+    FROM ddxfitness_prod_v2.bi_all_mobile_events e
+    INNER JOIN ddxfitness_prod_v2.user_payment_plans_by_day p USING (user_id)
+    WHERE e.os_name = 'android'
+      AND e.event_name IN (
+         'online_video_page_open',
+         'online_onboarding_page2_open',
+         'buy_299_onboarding_page', 'online_onboarding_page2_buy_button',
+         'price_page_registration',
+         'create_subscription_call', 'create_subscription_request',
+         'subscription_purchase_request', 'pay_success'
+      )
+      AND p.payment_plan_id = 205
+),
+
+step1 AS (
+  SELECT
+    device_id,
+    MIN(event_datetime) AS t1
+  FROM distinct_events
+  WHERE event_name = 'online_video_page_open'
+  GROUP BY device_id
+),
+
+step2 AS (
+  SELECT
+    s1.device_id,
+    MIN(de.event_datetime) AS t2
+  FROM step1 s1
+  JOIN distinct_events de 
+    ON s1.device_id = de.device_id
+  WHERE de.event_name = 'online_onboarding_page2_open'
+    AND de.event_datetime >= s1.t1
+  GROUP BY s1.device_id
+),
+
+step3 AS (
+  SELECT
+    s2.device_id,
+    MIN(de.event_datetime) AS t3
+  FROM step2 s2
+  JOIN distinct_events de 
+    ON s2.device_id = de.device_id
+  WHERE de.event_name IN ('buy_299_onboarding_page','online_onboarding_page2_buy_button')
+    AND de.event_datetime >= s2.t2
+  GROUP BY s2.device_id
+),
+
+step4 AS (
+  SELECT
+    s3.device_id,
+    MIN(de.event_datetime) AS t4
+  FROM step3 s3
+  JOIN distinct_events de
+    ON s3.device_id = de.device_id
+  WHERE de.event_name = 'price_page_registration'
+    AND de.event_datetime >= s3.t3
+  GROUP BY s3.device_id
+),
+
+step5 AS (
+  SELECT
+    s4.device_id,
+    argMin(de.user_id, de.event_datetime) AS user_id_step5,
+    MIN(de.event_datetime) AS t5
+  FROM step4 s4
+  JOIN distinct_events de
+    ON s4.device_id = de.device_id
+  WHERE de.event_datetime >= s4.t4
+    AND de.event_name IN ('create_subscription_call','create_subscription_request')
+    AND de.user_id != 0
+  GROUP BY s4.device_id
+),
+
+step6 AS (
+  SELECT
+    s5.device_id,
+    argMin(de.user_id, de.event_datetime) AS user_id_step6,
+    MIN(de.event_datetime) AS t6
+  FROM step5 s5
+  JOIN distinct_events de
+    ON s5.device_id = de.device_id
+  WHERE de.event_datetime >= s5.t5
+    AND de.event_name IN ('subscription_purchase_request','pay_success')
+    AND de.user_id != 0
+  GROUP BY s5.device_id
+)
+
+SELECT 
+  step_number,
+  step_label,
+  COUNT(DISTINCT device_id) AS devices_count
+FROM
+(
+  SELECT 1 AS step_number,
+         'Открытие экрана Action' AS step_label,
+         device_id
+  FROM step1
+
+  UNION ALL
+
+  SELECT 2,
+         'Открытие Онбординга',
+         device_id
+  FROM step2
+
+  UNION ALL
+
+  SELECT 3,
+         'Нажатие кнопки "купить за 299руб" на последнем экране онбординга',
+         device_id
+  FROM step3
+
+  UNION ALL
+
+  SELECT 4,
+         'Переход на страницу выбора способа оплаты',
+         device_id
+  FROM step4
+
+  UNION ALL
+
+  SELECT 5,
+         'Создание подписки-нажатие кнопки оплатить',
+         device_id
+  FROM step5
+
+  UNION ALL
+
+  SELECT 6,
+         'Покупка',
+         device_id
+  FROM step6
+)
+GROUP BY 
+  step_number,
+  step_label
+ORDER BY 
+  step_number;
