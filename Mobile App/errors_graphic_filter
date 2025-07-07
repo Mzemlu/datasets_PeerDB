@@ -1,0 +1,45 @@
+WITH version_users AS (
+    SELECT
+        AppVersionName AS app_version,
+        OSName         AS os_name,
+        uniqExact(
+            COALESCE(NULLIF(GoogleAID, ''), NULLIF(IFA, ''), DeviceID)
+        ) AS total_users_version
+    FROM mobile_db.sessions_starts_all
+    WHERE AppID = 4433968
+    GROUP BY
+        app_version, os_name
+),
+crash_stats AS (
+    SELECT
+        AppVersionName AS app_version,
+        OSName         AS os_name,
+        COUNT(*) AS crash_count,
+        uniqExact(
+            COALESCE(NULLIF(GoogleAID, ''), NULLIF(IFA, ''), DeviceID)
+        ) AS crash_user_count,
+        MIN(CrashDateTime) AS first_crash_date,
+        MAX(CrashDateTime) AS last_crash_date
+    FROM mobile_db.crashes_all
+    WHERE AppID = 4433968
+    GROUP BY
+        app_version, os_name
+)
+
+SELECT
+    cs.app_version                                 AS app_version,
+    cs.os_name                                     AS os_name,
+    cs.crash_count                                 AS "Крэши",
+    cs.crash_user_count                            AS "Устройства",
+    IF(vu.total_users_version > 0,
+       cs.crash_user_count / vu.total_users_version,
+       0
+    )                                              AS "% от всех устройств",
+    cs.first_crash_date                            AS "Обнаружен в версии",
+    cs.last_crash_date                             AS "Последнее воспроизведение"
+FROM crash_stats cs
+LEFT JOIN version_users vu
+    ON  cs.app_version = vu.app_version
+    AND cs.os_name     = vu.os_name
+ORDER BY
+    cs.crash_count DESC
