@@ -1,0 +1,153 @@
+WITH
+distinct_events AS (
+    SELECT DISTINCT
+        device_id,
+        user_id,
+        event_datetime,
+        event_name
+    FROM ddxfitness_prod_v2.bi_all_mobile_events
+    WHERE os_name = 'android'
+      AND event_name IN (
+        'main_page_open',
+        'banner_tap',
+        'buy_299_onboarding_page',
+        'price_page_registration',
+        'create_subscription_call',
+        'create_subscription_request',
+        'subscription_purchase_request',
+        'pay_success'
+      )
+),
+
+-- ШАГ 1: Открытие главного экрана
+step1 AS (
+    SELECT
+        device_id,
+        MIN(event_datetime) AS t1
+    FROM distinct_events
+    WHERE event_name = 'main_page_open'
+    GROUP BY device_id
+),
+
+-- ШАГ 2: Тап по баннеру
+step2 AS (
+    SELECT
+        s1.device_id,
+        MIN(de.event_datetime) AS t2
+    FROM step1 s1
+    INNER JOIN distinct_events de
+        ON de.device_id = s1.device_id
+    WHERE de.event_name = 'banner_tap'
+      AND de.event_datetime >= s1.t1
+    GROUP BY s1.device_id
+),
+
+-- ШАГ 3: Нажатие кнопки «Купить»
+step3 AS (
+    SELECT
+        s2.device_id,
+        MIN(de.event_datetime) AS t3
+    FROM step2 s2
+    INNER JOIN distinct_events de
+        ON de.device_id = s2.device_id
+    WHERE de.event_name = 'buy_299_onboarding_page'
+      AND de.event_datetime >= s2.t2
+    GROUP BY s2.device_id
+),
+
+-- ШАГ 4: Экран выбора оплаты
+step4 AS (
+    SELECT
+        s3.device_id,
+        MIN(de.event_datetime) AS t4
+    FROM step3 s3
+    INNER JOIN distinct_events de
+        ON de.device_id = s3.device_id
+    WHERE de.event_name = 'price_page_registration'
+      AND de.event_datetime >= s3.t3
+    GROUP BY s3.device_id
+),
+
+-- ШАГ 5: Создание подписки
+step5 AS (
+    SELECT
+        s4.device_id,
+        MIN(de.event_datetime) AS t5
+    FROM step4 s4
+    INNER JOIN distinct_events de
+        ON de.device_id = s4.device_id
+    WHERE de.event_name IN ('create_subscription_call','create_subscription_request')
+      AND de.event_datetime >= s4.t4
+    GROUP BY s4.device_id
+),
+
+-- ШАГ 6: Покупка
+step6 AS (
+    SELECT
+        s5.device_id,
+        MIN(de.event_datetime) AS t6
+    FROM step5 s5
+    INNER JOIN distinct_events de
+        ON de.device_id = s5.device_id
+    WHERE de.event_name IN ('subscription_purchase_request','pay_success')
+      AND de.event_datetime >= s5.t5
+    GROUP BY s5.device_id
+)
+
+SELECT
+  step_number,
+  step_label,
+  COUNT(DISTINCT device_id) AS devices_count
+FROM
+(
+    SELECT 
+        1 AS step_number,
+        'Открытие главного экрана' AS step_label,
+        device_id
+    FROM step1
+
+    UNION ALL
+
+    SELECT 
+        2 AS step_number,
+        'Тап по баннеру' AS step_label,
+        device_id
+    FROM step2
+
+    UNION ALL
+
+    SELECT 
+        3 AS step_number,
+        'Нажатие кнопки «Купить»' AS step_label,
+        device_id
+    FROM step3
+
+    UNION ALL
+
+    SELECT 
+        4 AS step_number,
+        'Экран выбора оплаты' AS step_label,
+        device_id
+    FROM step4
+
+    UNION ALL
+
+    SELECT 
+        5 AS step_number,
+        'Создание подписки' AS step_label,
+        device_id
+    FROM step5
+
+    UNION ALL
+
+    SELECT 
+        6 AS step_number,
+        'Покупка' AS step_label,
+        device_id
+    FROM step6
+)
+GROUP BY
+  step_number,
+  step_label
+ORDER BY
+  step_number;
