@@ -1,0 +1,22 @@
+SELECT 
+    CASE 
+        WHEN age BETWEEN 16 AND 19 THEN '16-19'
+        WHEN age BETWEEN 20 AND 24 THEN '20-24'
+        WHEN age BETWEEN 25 AND 29 THEN '25-29'
+        WHEN age BETWEEN 30 AND 34 THEN '30-34'
+        WHEN age BETWEEN 35 AND 39 THEN '35-39'
+        WHEN age BETWEEN 40 AND 44 THEN '40-44'
+        WHEN age BETWEEN 45 AND 50 THEN '45-50'
+        ELSE 'старше 50' 
+    END AS age
+FROM (
+    SELECT 
+        multiIf(
+            u.birthday IS NULL, 
+            NULL, 
+            CAST(u.birthday, 'UInt16') >= 39969, 
+            CAST(CAST(u.birthday, 'UInt16') - 65536, 'date32'), 
+            birthday
+        ) AS birthday_date,
+        date_diff('year', birthday_date, today()) AS age
+    FROM ddxfitness_prod_v2.pg_users u)
