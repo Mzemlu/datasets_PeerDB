@@ -1,0 +1,105 @@
+-- БЧК (С)
+
+WITH current_client AS (
+    SELECT 
+        user_id,
+        sum(CASE WHEN status IN ['Current', 'Freezed', 'NotStarted'] THEN 1 END) AS flaq_client
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    GROUP BY user_id
+),
+rnk_ex_client AS (
+    SELECT 
+        upp2.id AS id,
+        upp2.user_id AS user_id,
+        upp2.payment_plan_id AS payment_plan_id,
+        upp2.club_id AS club_id,
+        upp2.cancel_reason,
+        upp2.status,
+        upp2.end_date AS end_date,
+        upp2.discount_id,
+        upp2.discount_code_id,
+        row_number() OVER (PARTITION BY upp2.user_id ORDER BY upp2.signed_date DESC) AS rnk
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp2
+    LEFT JOIN current_client t ON upp2.user_id = t.user_id
+    WHERE flaq_client IS NULL
+)
+SELECT 
+    ci.name AS city_name,
+    t.id AS user_payment_plan_id,
+    t.discount_code_id,
+    dc.code,
+    tr.discount_amount,
+    t.id AS id,
+    t.user_id,
+    t.payment_plan_id,
+    t.club_id,
+    t.cancel_reason,
+    t.status,
+    pp.name AS payment_name,
+    toTimezone(t.end_date, 'Europe/Moscow') AS end_date,
+    t.rnk AS rnk,
+    replace(extractAll(ifNull(u.phone, ''), '\\+?[0-9]+')[1], '+', '') AS phone,
+    CASE WHEN u.is_deleted = 1 THEN 'Да' ELSE 'Нет' END AS flaq_delete_acc,
+    u.sex AS sex,
+    u.email AS email,
+    d.name AS discount_name,
+    s.name AS club_name,
+    concat(u.name, ' ', u.last_name) AS user_name,
+    age('year', 
+        multiIf(
+            u.birthday IS NULL, NULL,
+            cast(u.birthday, 'UInt16') >= 39969,
+            cast(cast(u.birthday, 'UInt16') - 65536, 'date32'),
+            u.birthday
+        ), now()
+    ) AS age,
+    tr.discount_code_id AS discount_code_id_tr,
+    dc2.code AS code_tr,
+    d2.name AS discount_name_tr,
+    CASE 
+        WHEN discount_name LIKE '%Getblogger 04.2024%' THEN 'Getblogger 04.2024'
+        WHEN discount_name LIKE '%Getblogger 05.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%Getblogger 06.2024%' THEN 'Getblogger 06.2024'
+        WHEN discount_name LIKE '%Getblogger 07.2024%' THEN 'Getblogger 07.2024'
+        WHEN discount_name LIKE '%Getblogger 08.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%Getblogger 09.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%Getblogger 10.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%Getblogger 11.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%Getblogger 12.2024%' THEN 'Getblogger 05.2024'
+        WHEN discount_name LIKE '%GB именные 09.2024%' THEN 'GB именные 09.2024'
+        WHEN discount_name LIKE '%Perfluence 06.2024%' THEN 'Perfluence 06.2024'
+        WHEN discount_name LIKE '%Perfluence 10.2024%' THEN 'Perfluence 10.2024'
+        WHEN discount_name LIKE '%Perfluence 11.2024%' THEN 'Perfluence 11.2024'
+        ELSE discount_name
+    END AS discount_name_new
+FROM rnk_ex_client t
+LEFT JOIN ddxfitness_prod_v2.pg_users u ON t.user_id = u.id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs s ON t.club_id = s.id
+INNER JOIN ddxfitness_prod_v2.pg_cities ci ON s.city_id = ci.id
+LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON t.payment_plan_id = pp.id
+LEFT JOIN ddxfitness_prod_v2.pg_discounts d ON t.discount_id = d.id
+LEFT JOIN ddxfitness_prod_v2.pg_discount_codes dc ON dc.id = t.discount_code_id
+LEFT JOIN (
+    SELECT 
+        user_payment_plan_id, 
+        discount_amount,
+        discount_code_id,
+        discount_id
+    FROM (
+        SELECT 
+            ROW_NUMBER() OVER (PARTITION BY user_payment_plan_id ORDER BY id) AS rn, 
+            id, 
+            discount_id, 
+            discount_amount, 
+            user_payment_plan_id,
+            discount_code_id
+        FROM ddxfitness_prod_v2.bi_completed_transactions bct 
+        WHERE user_payment_plan_id <> 0
+          AND provider_id IN (6, 17, 20, 21, 26, 27)
+    ) WHERE rn = 1
+) tr ON t.id = tr.user_payment_plan_id
+LEFT JOIN ddxfitness_prod_v2.pg_discount_codes dc2 ON dc2.id = tr.discount_code_id
+LEFT JOIN ddxfitness_prod_v2.pg_discounts d2 ON d2.id = tr.discount_id
+WHERE t.rnk = 1 
+  AND t.status IN ('Ended', 'Refunded')
+  AND t.payment_plan_id NOT IN [1, 23, 88, 103, 110, 111, 115, 152, 161, 208];
