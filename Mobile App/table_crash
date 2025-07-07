@@ -1,0 +1,58 @@
+WITH
+global_crash AS (
+    SELECT
+        CrashGroupID                                            AS crash_group,
+        min(CrashDateTime)                                      AS global_first_crash_date,
+        argMin(AppVersionName, CrashDateTime)                   AS global_first_crash_version,
+        
+        max(CrashDateTime)                                      AS global_last_crash_date,
+        argMax(AppVersionName, CrashDateTime)                   AS global_last_crash_version
+    FROM mobile_db.crashes_all
+    WHERE AppID = 4433968
+    GROUP BY
+        CrashGroupID
+),
+crash_stats AS (
+    SELECT
+        CrashGroupID                                            AS crash_group,
+        AppVersionName                                          AS app_version,
+        OSName                                                  AS os_name,
+        
+        count(*)                                                AS crash_count,
+        uniqExact(
+            coalesce(NULLIF(GoogleAID,''), NULLIF(IFA,''), DeviceID)
+        )                                                       AS crash_user_count,
+        
+        min(CrashDateTime)                                      AS first_crash_date_in_this_version,
+        max(CrashDateTime)                                      AS last_crash_date_in_this_version
+    FROM mobile_db.crashes_all
+    WHERE AppID = 4433968
+    GROUP BY
+        crash_group,
+        app_version,
+        os_name
+)
+SELECT
+    cs.crash_group                             AS "CrashGroupID",
+    cs.app_version                             AS "Версия приложения",
+    cs.os_name                                 AS "ОС",
+
+    cs.crash_count                             AS "Крэши (в этой версии)",
+    cs.crash_user_count                        AS "Устройства (в этой версии)",
+
+    cs.first_crash_date_in_this_version        AS "Первая дата (в этой версии)",
+    cs.last_crash_date_in_this_version         AS "Последняя дата (в этой версии)",
+
+    gc.global_first_crash_version             AS "Первый релиз (глобально)",
+    gc.global_first_crash_date                AS "Дата первого крэша (глобально)",
+    
+    gc.global_last_crash_version              AS "Последний релиз (глобально)",
+    gc.global_last_crash_date                 AS "Дата последнего крэша (глобально)"
+
+FROM crash_stats cs
+LEFT JOIN global_crash gc
+    ON cs.crash_group = gc.crash_group
+
+ORDER BY
+    cs.crash_count DESC
+;
