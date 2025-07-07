@@ -1,0 +1,115 @@
+ WITH all_sub_pgm AS (
+        SELECT ur.id as id,
+            upp.id AS sub_id,
+            upp.payment_plan_id,
+            ur.phone,
+            ur.birthday,
+            ur.sex,
+            ur.sport_experience,
+            ur.email,
+            upp.signed_date + interval '3' hour  AS signed_date,
+            upp.start_date + interval '3' hour AS start_date,
+            pp.name,
+            upp.end_date + interval '3' hour AS end_date,
+            cl.name AS club_name,
+            upp.status,
+            CASE WHEN upp.card_token_id IS NULL THEN false ELSE true END AS card_token_id,
+            coalesce(upp.cancel_reason, '-') cancel_reason
+        FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+        LEFT JOIN ddxfitness_prod_v2.pg_users ur ON ur.id = upp.user_id
+        LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+        WHERE upp.id < 1000000 AND coalesce(upp.cancel_reason,'-') != 'ExcludeFromReport'
+    ),
+    all_sub_pgm2 AS (
+        SELECT asp1.*, 
+            tr.total_amount AS join_fee,
+            tr.membership_fee,
+            (tr.total_amount + tr.membership_fee) AS total_amount,
+            tr.discount_id,
+            tr.id AS tr_id,
+            tr.updated_at + interval '3' hour AS payment_date,
+            tr.gate_id,
+            tr.employee_id,
+            u.name employee_name,
+            u.last_name,
+            tg.name gate_name,
+            ds.name AS discount_name
+        FROM all_sub_pgm asp1
+        LEFT JOIN (
+            SELECT total_amount, membership_fee, discount_id, id, updated_at, gate_id, employee_id, user_payment_plan_id
+            FROM ddxfitness_prod_v2.pg_transactions
+            WHERE provider_id = 6 AND status = 'completed'
+        ) tr ON tr.user_payment_plan_id = asp1.sub_id
+        LEFT JOIN ddxfitness_prod_v2.pg_discounts ds ON ds.id = tr.discount_id
+        LEFT JOIN ddxfitness_prod_v2.pg_transaction_gates tg ON tg.id = tr.gate_id
+        LEFT JOIN ddxfitness_prod_v2.pg_employees e2 ON tr.employee_id = e2.id
+        LEFT JOIN ddxfitness_prod_v2.pg_users u ON u.id = e2.user_id
+    ),
+    all_sub_pgm4 AS (
+        SELECT *, first_value(tr_id) over (PARTITION by sub_id ORDER BY tr_id) AS min_value
+        FROM all_sub_pgm2
+    ),
+    all_sub_pgm5 AS (
+        SELECT *, coalesce(tr_id,0) AS transaction_id, coalesce(min_value,0) AS mininum_value
+        FROM all_sub_pgm4
+    ),
+    all_sub_ddx AS (
+        SELECT ur.id, upp.id AS sub_id, upp.payment_plan_id,
+            ur.phone, ur.birthday, ur.sex, ur.sport_experience, ur.email,
+            upp.signed_date + interval '3' hour AS signed_date,
+            upp.start_date + interval '3' hour AS start_date,
+            pp.name, upp.end_date + interval '3' hour AS end_date,
+            cl.name AS club_name, upp.status,
+            CASE WHEN upp.card_token_id IS NULL THEN false ELSE true END AS card_token_id,
+            coalesce(upp.cancel_reason, '-') AS cancel_reason
+        FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+        LEFT JOIN ddxfitness_prod_v2.pg_users ur ON ur.id = upp.user_id
+        LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+        LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+        WHERE upp.id >= 1000000 AND coalesce(upp.cancel_reason,'-') != 'ExcludeFromReport'
+    ),
+    all_sub_ddx2 AS (
+        SELECT asp1.*, 
+            tr.total_amount, tr.membership_fee, tr.join_fee, tr.discount_id, tr.id AS tr_id,
+            tr.updated_at + interval '3' hour AS payment_date, ds.name AS discount_name,
+            tr.gate_id, tr.employee_id, u.name employee_name, u.last_name, tg.name gate_name
+        FROM all_sub_ddx asp1
+        LEFT JOIN (
+            SELECT total_amount, membership_fee, join_fee, discount_id, id, updated_at,
+                   gate_id, employee_id, user_payment_plan_id
+            FROM ddxfitness_prod_v2.pg_transactions
+            WHERE provider_id = 6 AND status = 'completed'
+        ) tr ON tr.user_payment_plan_id = asp1.sub_id
+        LEFT JOIN ddxfitness_prod_v2.pg_discounts ds ON ds.id = tr.discount_id
+        LEFT JOIN ddxfitness_prod_v2.pg_transaction_gates tg ON tg.id = tr.gate_id
+        LEFT JOIN ddxfitness_prod_v2.pg_employees e2 ON tr.employee_id = e2.id
+        LEFT JOIN ddxfitness_prod_v2.pg_users u ON u.id = e2.user_id
+    ),
+    all_sub_ddx3 AS (
+        SELECT *, first_value(tr_id) over (PARTITION by sub_id ORDER BY tr_id) AS min_value
+        FROM all_sub_ddx2
+    ),
+    all_sub_ddx4 AS (
+        SELECT *, coalesce(tr_id,0) AS transaction_id, coalesce(min_value,0) AS mininum_value
+        FROM all_sub_ddx3
+    ),
+    final_table AS (
+        SELECT * FROM all_sub_ddx4
+        WHERE transaction_id = mininum_value AND status != 'Deleted'
+        UNION ALL
+        SELECT * FROM all_sub_pgm5
+        WHERE transaction_id = mininum_value
+    ),
+    is_new AS (
+        SELECT sub_id, user_id, row_number() over (PARTITION BY user_id ORDER BY sub_id) is_new
+        FROM final_table
+        WHERE payment_plan_id NOT IN (119,200,152,160,201,94,103,23,123,163,14,88,115)
+    )
+    SELECT 
+        multiIf(is.is_new=1,'НЧК', is.is_new>1,'БЧК','-') is_new,
+        iao.is_inflow,
+        f.*
+    FROM final_table f
+    LEFT JOIN is_new is ON f.sub_id = is.sub_id
+    LEFT JOIN ddxfitness_prod_v2.inflow_and_outflow_marketing_new iao ON f.sub_id = iao.first_id;
