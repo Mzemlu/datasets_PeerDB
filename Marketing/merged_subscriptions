@@ -1,0 +1,45 @@
+SELECT 
+    city1.name AS inflow_city_name,
+    city2.name AS outflow_city_name,
+    user_id,
+    m.name AS name,
+    last_name,
+    m.phone AS phone,
+    m.email AS email,
+    birthday,
+    sex,
+    first_id,
+    last_id,
+    sport_experience,
+    first_payment_plan_name,
+    last_payment_plan_name,
+    discount_name,
+    discount_name_new,
+    code,
+    inflow_club_name,
+    outflow_club_name,
+    status,
+    cancel_reason,
+    is_new,
+    start_date,
+    start_training_date,
+    end_date,
+    discount_amount,
+    membership_fee,
+    qty_plans,
+    user_status,
+    pp_attribute,
+    gate_name,
+    employee_name,
+    last_employee_name,
+    end_date_value,
+    toStartOfMonth(start_training_date) AS start_date_value
+FROM inflow_and_outflow_marketing m
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c1
+    ON m.inflow_club_name = c1.name
+LEFT JOIN ddxfitness_prod_v2.pg_cities city1
+    ON c1.city_id = city1.id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c2
+    ON m.outflow_club_name = c2.name
+LEFT JOIN ddxfitness_prod_v2.pg_cities city2
+    ON c2.city_id = city2.id;
