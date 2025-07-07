@@ -1,0 +1,108 @@
+WITH
+distinct_events AS (
+    SELECT DISTINCT
+        e.device_id,
+        e.user_id,
+        e.event_datetime,
+        e.event_name
+    FROM ddxfitness_prod_v2.bi_all_mobile_events e
+    INNER JOIN ddxfitness_prod_v2.user_payment_plans_by_day p USING (user_id)
+    WHERE e.os_name = 'android'
+      AND e.event_name IN (
+          'subscribe_button_videoprogramm_page',
+          'price_page_registration',
+          'create_subscription_call','create_subscription_request',
+          'subscription_purchase_request','pay_success'
+      )
+      AND p.payment_plan_id = 205
+),
+
+-- ШАГ 1: Нажатие кнопки «Оформить подписку» на экране видеопрограммы
+step1 AS (
+    SELECT
+        device_id,
+        MIN(event_datetime) AS t1
+    FROM distinct_events
+    WHERE event_name = 'subscribe_button_videoprogramm_page'
+    GROUP BY device_id
+),
+
+-- ШАГ 2: Переход на страницу выбора оплаты
+step2 AS (
+    SELECT
+        s1.device_id,
+        MIN(de.event_datetime) AS t2
+    FROM step1 s1
+    JOIN distinct_events de
+      ON de.device_id = s1.device_id
+    WHERE de.event_name = 'price_page_registration'
+      AND de.event_datetime >= s1.t1
+    GROUP BY s1.device_id
+),
+
+-- ШАГ 3: Создание подписки
+step3 AS (
+    SELECT
+        s2.device_id,
+        argMin(de.user_id, de.event_datetime) AS user_id_step3,
+        MIN(de.event_datetime) AS t3
+    FROM step2 s2
+    JOIN distinct_events de
+      ON de.device_id = s2.device_id
+    WHERE de.event_name IN ('create_subscription_call','create_subscription_request')
+      AND de.event_datetime >= s2.t2
+    GROUP BY s2.device_id
+),
+
+-- ШАГ 4: Покупка
+step4 AS (
+    SELECT
+        s3.device_id,
+        argMin(de.user_id, de.event_datetime) AS user_id_step4,
+        MIN(de.event_datetime) AS t4
+    FROM step3 s3
+    JOIN distinct_events de
+      ON de.device_id = s3.device_id
+    WHERE de.event_name IN ('subscription_purchase_request','pay_success')
+      AND de.event_datetime >= s3.t3
+    GROUP BY s3.device_id
+)
+
+SELECT
+  step_number,
+  step_label,
+  COUNT(DISTINCT device_id) AS devices_count
+FROM
+(
+  SELECT 1 AS step_number,
+         'нажатие кнопки "оформить подписку" на экране видеопрограммы' AS step_label,
+         device_id
+  FROM step1
+
+  UNION ALL
+
+  SELECT 2,
+         'переход на страницу выбора способа оплаты',
+         device_id
+  FROM step2
+
+  UNION ALL
+
+  SELECT 3,
+         'Cоздание подписки-нажатие кнопки оплатить',
+         device_id
+  FROM step3
+
+  UNION ALL
+
+  SELECT 4,
+         'Покупка',
+         device_id
+  FROM step4
+)
+GROUP BY
+  step_number,
+  step_label
+ORDER BY
+  step_number
+;
