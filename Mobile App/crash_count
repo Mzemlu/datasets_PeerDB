@@ -1,0 +1,43 @@
+with dau as (
+    select
+        SessionStartDate as date,
+        count(distinct 
+            coalesce(
+                nullif(GoogleAID, ''), 
+                nullif(IFA, ''), 
+                DeviceID
+            )
+        ) as dau_count,
+        count(*) as session_count
+    from mobile_db.sessions_starts_all
+    WHERE AppID = 4433968
+    group by date
+),
+crash_users as (
+    select
+        CrashDate as date,
+        count(*) as crash_count,
+        count(distinct 
+            coalesce(
+                nullif(GoogleAID, ''), 
+                nullif(IFA, ''), 
+                DeviceID
+            )
+        ) as crash_user_count
+    from mobile_db.crashes_all
+    WHERE AppID = 4433968
+    group by date
+)
+select
+    d.date,
+    d.dau_count,       -- кол-во уникальных пользователей в день
+    cu.crash_user_count,  -- кол-во уникальных пользователей со сбоями
+    cu.crash_count, -- общее кол-во сбоев
+    cu.crash_user_count / d.dau_count as crash_rate_percentage, -- доля сбоев на пользователя
+    d.session_count,                     -- общее кол-во сессий
+    (cu.crash_count / d.session_count) * 1000 as crash_rate_per_1000_sessions, -- коэф сбоев на 1000 сеансов
+    (cu.crash_count / cu.crash_user_count) as avg_crashes_per_user,     -- среднее кол-во сбоев на пользователя
+    cu.crash_count / d.session_count as crash_sessions_percentage -- доля сеансов завершившихся сбоем
+from dau d
+left join crash_users cu on d.date = cu.date
+order by d.date;
