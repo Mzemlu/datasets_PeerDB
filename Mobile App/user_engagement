@@ -1,0 +1,1 @@
+SELECT * FROM ddxfitness_prod_v2.bi_sessions_fact;
