@@ -1,0 +1,31 @@
+WITH schedule_open AS (
+    SELECT 
+        AppID,
+        DeviceID,
+        EventDate,
+        EventName
+        --os_name,
+        --session_type
+    FROM mobile_db.events_all
+    WHERE EventName = 'schedule_training_page_open'
+    AND AppID = 4433968
+    GROUP BY 1,2,3,4
+),
+group_booking AS (
+    SELECT 
+        AppID,
+        DeviceID,
+        EventDate,
+        EventName
+        --os_name,
+        --session_type,
+        --connection_type,
+        --operator_name
+    FROM mobile_db.events_all
+    WHERE EventName = 'group_training_booking_success'
+    AND AppID = 4433968
+    GROUP BY 1,2,3,4
+)
+SELECT AppID, DeviceID, EventDate, EventName FROM schedule_open
+UNION ALL
+SELECT AppID, DeviceID, EventDate, EventName FROM group_booking;
