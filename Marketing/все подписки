@@ -1,0 +1,119 @@
+WITH all_sub_pgm AS (
+    SELECT ur.id,
+        upp.id AS sub_id,
+        ur.phone,
+        ur.birthday,
+        ur.sex,
+        ur.sport_experience,
+        ur.email,
+        (upp.signed_date at time zone 'UTC') at time zone 'Europe/Moscow' AS signed_date,
+        (upp.start_date at time zone 'UTC') at time zone 'Europe/Moscow' AS start_date,
+        pp.name,
+        (upp.end_date at time zone 'UTC') at time zone 'Europe/Moscow' AS end_date,
+        cl.name AS club_name,
+        upp.status,
+        CASE WHEN upp.card_token_id IS NULL THEN false ELSE true END AS card_token_id,
+        CASE WHEN upp.cancel_reason IS NULL THEN '-' ELSE upp.cancel_reason END AS cancel_reason
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    LEFT JOIN ddxfitness_prod_v2.pg_users ur ON ur.id = upp.user_id
+    LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+    WHERE upp.id < 1000000
+),
+all_sub_pgm1 AS (
+    SELECT * FROM all_sub_pgm WHERE cancel_reason != 'ExcludeFromReport'
+),
+all_sub_pgm2 AS (
+    SELECT asp1.*, tr.total_amount AS join_fee, tr.membership_fee,
+           (tr.total_amount + tr.membership_fee) AS total_amount,
+           tr.discount_id, tr.id AS tr_id,
+           (tr.updated_at at time zone 'UTC') at time zone 'Europe/Moscow' AS payment_date,
+           ds.name AS discount_name
+    FROM all_sub_pgm1 asp1
+    LEFT JOIN ddxfitness_prod_v2.pg_transactions tr ON tr.user_payment_plan_id = asp1.sub_id
+         AND tr.provider_id = 6 AND tr.status = 'completed'
+    LEFT JOIN ddxfitness_prod_v2.pg_discounts ds ON ds.id = tr.discount_id
+),
+all_sub_pgm3 AS (
+    SELECT * FROM all_sub_pgm2
+),
+all_sub_pgm4 AS (
+    SELECT *,
+        first_value(tr_id) OVER (PARTITION BY sub_id ORDER BY tr_id) AS min_value
+    FROM all_sub_pgm3
+),
+all_sub_pgm5 AS (
+    SELECT *,
+        CASE WHEN tr_id IS NULL THEN 0 ELSE tr_id END AS transaction_id,
+        CASE WHEN min_value IS NULL THEN 0 ELSE min_value END AS mininum_value
+    FROM all_sub_pgm4
+),
+
+-- DDX подписки
+all_sub_ddx AS (
+    SELECT ur.id,
+        upp.id AS sub_id,
+        ur.phone,
+        ur.birthday,
+        ur.sex,
+        ur.sport_experience,
+        ur.email,
+        (upp.signed_date at time zone 'UTC') at time zone 'Europe/Moscow' AS signed_date,
+        (upp.start_date at time zone 'UTC') at time zone 'Europe/Moscow' AS start_date,
+        pp.name,
+        (upp.end_date at time zone 'UTC') at time zone 'Europe/Moscow' AS end_date,
+        cl.name AS club_name,
+        upp.status,
+        CASE WHEN upp.card_token_id IS NULL THEN false ELSE true END AS card_token_id,
+        CASE WHEN upp.cancel_reason IS NULL THEN '-' ELSE upp.cancel_reason END AS cancel_reason
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    LEFT JOIN ddxfitness_prod_v2.pg_users ur ON ur.id = upp.user_id
+    LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON pp.id = upp.payment_plan_id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+    WHERE upp.id >= 1000000
+),
+all_sub_ddx1 AS (
+    SELECT * FROM all_sub_ddx WHERE cancel_reason != 'ExcludeFromReport'
+),
+all_sub_ddx2 AS (
+    SELECT asp1.*, tr.total_amount, tr.membership_fee, tr.join_fee,
+           tr.discount_id, tr.id AS tr_id,
+           (tr.updated_at at time zone 'UTC') at time zone 'Europe/Moscow' AS payment_date,
+           ds.name AS discount_name
+    FROM all_sub_ddx1 asp1
+    LEFT JOIN ddxfitness_prod_v2.pg_transactions tr ON tr.user_payment_plan_id = asp1.sub_id
+         AND tr.provider_id = 6 AND tr.status = 'completed'
+    LEFT JOIN ddxfitness_prod_v2.pg_discounts ds ON ds.id = tr.discount_id
+),
+all_sub_ddx3 AS (
+    SELECT *,
+        first_value(tr_id) OVER (PARTITION BY sub_id ORDER BY tr_id) AS min_value
+    FROM all_sub_ddx2
+),
+all_sub_ddx4 AS (
+    SELECT *,
+        CASE WHEN tr_id IS NULL THEN 0 ELSE tr_id END AS transaction_id,
+        CASE WHEN min_value IS NULL THEN 0 ELSE min_value END AS mininum_value
+    FROM all_sub_ddx3
+)
+
+-- Итоговый SELECT
+SELECT id AS user_id, sub_id, phone, email, birthday, sex,
+       sport_experience AS fitness_experience,
+       signed_date, start_date, payment_date, end_date,
+       club_name, name AS subscription_name, discount_name,
+       card_token_id, status, join_fee, membership_fee,
+       total_amount, cancel_reason
+FROM all_sub_ddx4
+WHERE transaction_id = mininum_value AND status != 'Deleted'
+
+UNION
+
+SELECT id AS user_id, sub_id, phone, email, birthday, sex,
+       sport_experience AS fitness_experience,
+       signed_date, start_date, payment_date, end_date,
+       club_name, name AS subscription_name, discount_name,
+       card_token_id, status, join_fee, membership_fee,
+       total_amount, cancel_reason
+FROM all_sub_pgm5
+WHERE transaction_id = mininum_value;
