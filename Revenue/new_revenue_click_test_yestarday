@@ -1,0 +1,55 @@
+WITH cte AS (
+    SELECT tr.id,
+           tr.updated_at AS payment_date,
+           tr.type AS type,
+           tr.payment_service_id AS payment_service_id,
+           tr.total_amount AS total_amount,
+           CASE WHEN tr.provider_id IN (20,21) THEN t.provider_id ELSE tr.provider_id END AS provider_id
+    FROM ddxfitness_prod_v2.bi_completed_transactions tr
+    LEFT JOIN ddxfitness_prod_v2.pg_transactions t ON tr.id = t.id
+    JOIN ddxfitness_prod_v2.pg_transaction_providers tp ON tp.id = tr.provider_id
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = tr.user_payment_plan_id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+    WHERE tr.type = 'payment'
+)
+SELECT
+    payment_date AS payment_date,
+    multiIf(payment_service_id = 1,'Internal',
+            payment_service_id = 2,'CloudPayments',
+            payment_service_id = 3,'PayRU',
+            payment_service_id = 4,'Sberbank',
+            'other') AS payment_service,
+
+    SUM(CASE WHEN provider_id = 1 THEN total_amount END) AS recurrent,
+    SUM(CASE WHEN provider_id IN (2,28) THEN total_amount END) AS manual_subscription_payment,
+    SUM(CASE WHEN provider_id IN (3,24,25,34) THEN total_amount END) AS deposit,
+    SUM(CASE WHEN provider_id IN (6,26,27,29,37,38) THEN total_amount END) AS subscription_registration,
+    SUM(CASE WHEN provider_id IN (7,30,31) THEN total_amount END) AS purchase_of_goods_from_the_card,
+    SUM(CASE WHEN provider_id = 9 THEN total_amount END) AS upgrade,
+    SUM(CASE WHEN provider_id = 13 THEN total_amount END) AS freezing_from_the_card,
+    SUM(CASE WHEN provider_id = 16 THEN total_amount END) AS payment_card_change,
+    SUM(total_amount) AS total_amount_all
+
+FROM cte
+WHERE (payment_date >= today() - INTERVAL '1' DAY AND payment_date <= now() - INTERVAL '1' DAY)
+  AND provider_id IN (
+      1,   -- Рекуррентная оплата тарифного плана
+      2,   -- Ручная оплата тарифного плана
+      3,   -- Пополнение депозита
+      6,   -- Оформление тарифного плана
+      7,   -- Покупка по карте
+      9,   -- Upgrade
+      13,  -- Заморозка по карте
+      24,  -- Покупка подарочной карты
+      25,  -- Покупка подарочной карты с депозита
+      26,  -- Оформление подписки + ПК
+      27,  -- Оформление подписки (депозит + ПК)
+      28,  -- Ручная оплата подписки + ПК
+      29,  -- Оплата подписки (депозит + ПК)
+      30,  -- Покупка (депозит + ПК)
+      31,  -- Покупка (карта + ПК)
+      34,  -- Пополнение депозита с подарочной карты
+      37,  -- Оплата подписки (ПК)
+      38   -- Оплата подписки (депозит + ПК)
+  )
+GROUP BY payment_date, payment_service_id;
