@@ -1,0 +1,74 @@
+SELECT
+    toDate(del.deletion_time) AS deletion_date,  -- Дата удаления аккаунта
+    toStartOfMonth(del.deletion_time) AS deletion_month,  -- Месяц удаления
+    inst.OSName,  -- ОС (Android или iOS)
+    
+    COUNT(DISTINCT del.GoogleAID) AS total_deletions,  -- Общее количество удалений
+
+    -- Количество уникальных возвратов (переустановок) для обеих ОС
+    COUNT(DISTINCT CASE 
+        WHEN inst.IsReinstallation = 1 AND inst.OSName IN ('android', 'ios') THEN 
+            CASE
+                WHEN inst.OSName = 'android' THEN inst.GoogleAID
+                WHEN inst.OSName = 'ios' THEN inst.IFV
+            END
+        ELSE NULL 
+    END) AS returned_users,  -- Количество уникальных возвратов
+    
+    -- Процент возвратов от удалений (суммарно для обеих ОС)
+    ROUND(
+        COUNT(DISTINCT CASE 
+            WHEN inst.IsReinstallation = 1 AND inst.OSName IN ('android', 'ios') THEN 
+                CASE
+                    WHEN inst.OSName = 'android' THEN inst.GoogleAID
+                    WHEN inst.OSName = 'ios' THEN inst.IFV
+                END
+            ELSE NULL 
+        END) 
+        / 
+        COUNT(DISTINCT CASE 
+            WHEN del.GoogleAID IS NOT NULL THEN del.GoogleAID
+            WHEN del.IFV IS NOT NULL THEN del.IFV
+        END),
+        4
+    ) AS return_percentage  -- Процент возвратов от удалений
+
+FROM (
+    -- Подзапрос для получения данных по удалению аккаунтов
+    SELECT 
+        GoogleAID, 
+        IFA, 
+        IFV, 
+        MAX(EventDateTime) AS deletion_time
+    FROM 
+        mobile_db.events_all
+    WHERE 
+        EventName = 'delete_account_success'
+    GROUP BY 
+        GoogleAID, IFA, IFV
+) AS del
+ANY LEFT JOIN (
+    -- Подзапрос для получения данных по установкам
+    SELECT 
+        GoogleAID, 
+        IFA, 
+        IFV, 
+        InstallDateTime, 
+        IsReinstallation,
+        OSName
+    FROM 
+        mobile_db.installations_all_all
+    WHERE 
+        InstallDateTime > '2024-01-01'
+) AS inst
+ON (del.GoogleAID = inst.GoogleAID 
+    OR del.IFA = inst.IFA 
+    OR del.IFV = inst.IFV)
+
+WHERE
+    inst.OSName IN ('android', 'ios') 
+
+GROUP BY 
+    deletion_date, deletion_month, inst.OSName
+ORDER BY 
+    deletion_date ASC;
