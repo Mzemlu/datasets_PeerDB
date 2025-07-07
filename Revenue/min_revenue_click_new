@@ -1,0 +1,34 @@
+WITH cte AS (
+    SELECT tr.id,
+           tr.updated_at AS payment_date,
+           tr.type AS type,
+           tr.version_updated_at,
+           tr.payment_service_id AS payment_service_id,
+           tr.total_amount AS total_amount,
+           CASE WHEN tr.provider_id IN (20,21) THEN t.provider_id ELSE tr.provider_id END AS provider_id
+    FROM ddxfitness_prod_v2.bi_completed_transactions tr
+    LEFT JOIN ddxfitness_prod_v2.pg_transactions t ON tr.id = t.id
+    JOIN ddxfitness_prod_v2.pg_transaction_providers tp ON tp.id = tr.provider_id
+    LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = tr.user_payment_plan_id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+    WHERE tr.type = 'payment'
+),
+max_revenue AS (
+    SELECT
+        CASE 
+            WHEN version_updated_at <= '2024-01-10' THEN (payment_date - INTERVAL '3' HOUR)::date
+            ELSE (payment_date)::date 
+        END AS payment_date,
+        SUM(total_amount) AS total_amount_all
+    FROM cte
+    WHERE provider_id IN (
+        1, 2, 3, 6, 7, 9, 13, 24, 25, 26, 27, 28, 29, 30, 31, 34, 37, 38
+    )
+    GROUP BY 1
+)
+SELECT * 
+FROM max_revenue
+WHERE payment_date > '2022-12-13' 
+  AND payment_date < today()
+ORDER BY total_amount_all ASC
+LIMIT 1;
