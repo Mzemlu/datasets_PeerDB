@@ -1,0 +1,68 @@
+WITH required_payment_plans AS (
+    SELECT 
+        upp.user_id,
+        toTimezone(upp.signed_date, 'Europe/Moscow') + toIntervalHour(3) AS signed_date,
+        CASE 
+            WHEN end_date IS NULL AND status NOT IN ['Ended','Created','Deleted','Refunded'] THEN '2099-12-31'::Date
+            ELSE toTimezone(end_date, 'Europe/Moscow') + toIntervalHour(3)
+        END AS end_date
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON upp.payment_plan_id = pp.id
+    WHERE pp.id NOT IN [1, 111, 152, 161]
+      AND upp.status <> 'Deleted'
+),
+main_table AS (
+    SELECT 
+        bvh.id AS id,
+        bvh.club_id AS club_id,
+        bvh.club_name AS club_name,
+        bvh.user_id AS user_id,
+        bvh.event_date AS event_date,
+        bvh.event_type AS event_type
+    FROM ddxfitness_prod_v2.bi_visits_histories bvh
+    INNER JOIN required_payment_plans s ON bvh.user_id = s.user_id
+    WHERE bvh.event_type IN ('club_out', 'club_in')
+      AND bvh.event_date BETWEEN s.signed_date AND s.end_date
+      AND event_date >= '{{from_dttm}}'
+      AND event_date < '{{to_dttm}}'
+      AND club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+    GROUP BY 
+        bvh.id, bvh.club_id, bvh.club_name, 
+        bvh.user_id, bvh.event_date, bvh.event_type
+),
+next_lead_event AS (
+    SELECT *,
+        leadInFrame(event_date) OVER (
+            PARTITION BY user_id 
+            ORDER BY event_date 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS lead_event,
+        leadInFrame(event_type) OVER (
+            PARTITION BY user_id 
+            ORDER BY event_date 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS lead_event_type
+    FROM main_table
+),
+filter_table AS (
+    SELECT *,
+        dateDiff('minute', event_date, lead_event) AS time_in_club
+    FROM next_lead_event
+    WHERE 
+        event_type = 'club_in' 
+        AND lead_event_type = 'club_out'
+        AND event_date::Date = (lead_event - INTERVAL '3' HOUR)::Date
+)
+SELECT 
+    t.id AS id,
+    t.club_id AS club_id,
+    t.club_name AS club_name,
+    t.user_id AS user_id,
+    u.phone AS phone,
+    t.event_date AS event_date,
+    t.event_type AS event_type,
+    t.lead_event AS out_date,
+    t.lead_event_type AS lead_event_type,
+    t.time_in_club AS time_in_club
+FROM filter_table t
+LEFT JOIN ddxfitness_prod_v2.pg_users u ON t.user_id = u.id;
