@@ -1,0 +1,137 @@
+WITH
+distinct_events AS (
+    SELECT DISTINCT
+        user_id,
+        event_datetime,
+        event_name
+    FROM ddxfitness_prod_v2.bi_all_mobile_events
+    WHERE user_id != 0
+      AND event_name IN (
+        'main_page_open',
+        'price_page_open',
+        'price_page_scroll',
+        'price_page_registration',
+        'create_subscription_call',
+        'create_subscription_request',
+        'subscription_purchase_request',
+        'pay_success'
+      )
+),
+
+-- 1) Шаг 1: main_page_open
+step1 AS (
+    SELECT
+        user_id,
+        MIN(event_datetime) AS t1
+    FROM distinct_events
+    WHERE event_name = 'main_page_open'
+    GROUP BY user_id
+),
+
+-- 2) Шаг 2: price_page_open/price_page_scroll
+step2 AS (
+    SELECT
+        s1.user_id,
+        MIN(de.event_datetime) AS t2
+    FROM step1 s1
+    JOIN distinct_events de 
+      ON s1.user_id = de.user_id
+    WHERE de.event_name IN ('price_page_open','price_page_scroll')
+      AND de.event_datetime >= s1.t1
+    GROUP BY s1.user_id
+),
+
+-- 3) Шаг 3: price_page_registration
+step3 AS (
+    SELECT
+        s2.user_id,
+        MIN(de.event_datetime) AS t3
+    FROM step2 s2
+    JOIN distinct_events de
+      ON s2.user_id = de.user_id
+    WHERE de.event_name = 'price_page_registration'
+      AND de.event_datetime >= s2.t2
+    GROUP BY s2.user_id
+),
+
+-- 4) Шаг 4: create_subscription_call/request
+step4 AS (
+    SELECT
+        s3.user_id,
+        MIN(de.event_datetime) AS t4
+    FROM step3 s3
+    JOIN distinct_events de
+      ON s3.user_id = de.user_id
+    WHERE de.event_name IN ('create_subscription_call','create_subscription_request')
+      AND de.event_datetime >= s3.t3
+    GROUP BY s3.user_id
+),
+
+-- 5) Шаг 5: subscription_purchase_request / pay_success
+step5 AS (
+    SELECT
+        s4.user_id,
+        MIN(de.event_datetime) AS t5
+    FROM step4 s4
+    JOIN distinct_events de
+      ON s4.user_id = de.user_id
+    WHERE de.event_name IN ('subscription_purchase_request','pay_success')
+      AND de.event_datetime >= s4.t4
+    GROUP BY s4.user_id
+)
+
+SELECT
+  step_number,
+  step_label,
+  COUNT(DISTINCT user_id) AS users_count
+FROM
+(
+    -- Шаг 1
+    SELECT 
+        1 AS step_number,
+        'Открытие главного экрана приложения' AS step_label,
+        user_id
+    FROM step1
+    
+    UNION ALL
+
+    -- Шаг 2
+    SELECT
+        2 AS step_number,
+        'Переход на экран price_page',
+        user_id
+    FROM step2
+
+    UNION ALL
+
+    -- Шаг 3
+    SELECT
+        3 AS step_number,
+        'Переход на страницу выбора способа оплаты',
+        user_id
+    FROM step3
+
+    UNION ALL
+
+    -- Шаг 4
+    SELECT
+        4 AS step_number,
+        'Создание подписки-нажатие кнопки оплатить',
+        user_id
+    FROM step4
+
+    UNION ALL
+
+    -- Шаг 5
+    SELECT
+        5 AS step_number,
+        'Покупка',
+        user_id
+    FROM step5
+)
+GROUP BY 
+  step_number, 
+  step_label
+ORDER BY 
+  step_number
+;
