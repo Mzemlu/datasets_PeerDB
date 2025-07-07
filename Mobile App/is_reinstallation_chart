@@ -1,0 +1,46 @@
+SELECT
+    CASE
+        WHEN matches.IsReinstallation = 1 THEN 'Вернувшиеся'
+        WHEN matches.IsReinstallation = 0 THEN 'Не вернувшиеся'
+    END AS user_status, -- Категория статуса пользователя
+    COUNT(*) AS user_count -- Число пользователей в каждой категории
+FROM (
+    SELECT 
+        del.GoogleAID,
+        del.IFA,
+        del.IFV,
+        inst.IsReinstallation
+    FROM (
+        SELECT 
+            GoogleAID, 
+            IFA, 
+            IFV, 
+            MAX(EventDateTime) AS deletion_time
+        FROM 
+            mobile_db.events_all
+        WHERE 
+            EventName = 'delete_account_success'
+            AND AppID = 4433968
+        GROUP BY 
+            GoogleAID, IFA, IFV
+    ) AS del
+    ANY LEFT JOIN (
+        SELECT 
+            GoogleAID, 
+            IFA, 
+            IFV, 
+            InstallDateTime, 
+            IsReinstallation
+        FROM 
+            mobile_db.installations_all_all
+        WHERE 
+            InstallDateTime > '2024-01-01'
+    ) AS inst
+    ON del.GoogleAID = inst.GoogleAID 
+       OR del.IFA = inst.IFA 
+       OR del.IFV = inst.IFV
+) AS matches
+GROUP BY 
+    user_status
+ORDER BY 
+    user_count DESC;
