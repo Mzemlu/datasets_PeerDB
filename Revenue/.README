@@ -10,6 +10,5 @@ revenue_today(recurrent)
 revenue_yesterday(subscription_registration)
 revenue_yesterday(recurrent)
 выручка с месяцами и днями
-dashboards_list_click
 percentage_deviation_revenue
 day
