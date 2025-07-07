@@ -1,0 +1,63 @@
+WITH
+    sessions AS (
+        SELECT
+            toDate(SessionStartDateTime) AS event_date,
+            AppID AS app_id,
+            AppVersionName AS app_version,
+            OSName AS os_name,
+            count(*) AS session_count,
+            uniqExact(COALESCE(NULLIF(GoogleAID, ''), NULLIF(IFA, ''), DeviceID)) AS dau_count
+        FROM mobile_db.sessions_starts_all
+        WHERE AppID = 4433968
+        GROUP BY
+            event_date, app_id, app_version, os_name
+    ),
+    crashes AS (
+        SELECT
+            toDate(CrashDateTime) AS event_date,
+            AppID AS app_id,
+            AppVersionName AS app_version,
+            OSName AS os_name,
+            count(*) AS crash_count,
+            uniqExact(COALESCE(NULLIF(GoogleAID, ''), NULLIF(IFA, ''), DeviceID)) AS crash_user_count
+        FROM mobile_db.crashes_all
+        WHERE
+            AppID = 4433968
+            ---AND CrashGroupID NOT IN (554682065167911650, 11578860230700819636, 6765234744691334994, 16041282920612572646, 11250401514835062953, 498951888743991612)  -- Исключаем 5 аномальных групп
+        GROUP BY
+            event_date, app_id, app_version, os_name
+    )
+
+SELECT
+    COALESCE(s.event_date, c.event_date)               AS event_date,
+    COALESCE(s.app_id, c.app_id)                       AS app_id,
+    COALESCE(s.app_version, c.app_version)             AS app_version,
+    COALESCE(s.os_name, c.os_name)                     AS os_name,
+
+    COALESCE(s.session_count, 0)         AS session_count,
+    COALESCE(s.dau_count, 0)            AS dau_count,
+    COALESCE(c.crash_count, 0)          AS crash_count,
+    COALESCE(c.crash_user_count, 0)     AS crash_user_count,
+
+    -- Доля crash-free по сессиям 
+    IF(
+       COALESCE(s.session_count, 0) > 0,
+       (COALESCE(s.session_count, 0) - COALESCE(c.crash_count, 0)) / COALESCE(s.session_count, 0),
+       0
+    ) AS crash_free_sessions_ratio,
+
+    -- Доля crash-free по устройствам
+    IF(
+       COALESCE(s.dau_count, 0) > 0,
+       (COALESCE(s.dau_count, 0) - COALESCE(c.crash_user_count, 0)) / COALESCE(s.dau_count, 0),
+       0
+    ) AS crash_free_devices_ratio
+
+FROM sessions s
+FULL OUTER JOIN crashes c
+    ON  s.event_date   = c.event_date
+    AND s.app_id       = c.app_id
+    AND s.app_version  = c.app_version
+    AND s.os_name      = c.os_name
+
+ORDER BY event_date, app_version, os_name
