@@ -1,0 +1,1 @@
+SELECT id, payment_plan from ddxfitness_prod_v2.pg_d_inflow_payment_plans
