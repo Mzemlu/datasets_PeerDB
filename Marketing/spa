@@ -1,0 +1,84 @@
+WITH required_payment_plans AS (
+    SELECT
+        upp.user_id,
+        toTimezone(upp.signed_date, 'Europe/Moscow') + toIntervalHour(3) AS signed_date,
+        CASE
+            WHEN end_date IS NULL AND status NOT IN ('Ended','Created','Deleted','Refunded')
+                THEN '2099-12-31'::Date
+            ELSE toTimezone(end_date, 'Europe/Moscow') + toIntervalHour(3)
+        END AS end_date
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    LEFT JOIN ddxfitness_prod_v2.pg_payment_plans pp ON upp.payment_plan_id = pp.id
+    WHERE pp.id NOT IN (1, 111, 152, 161, 205, 206, 207, 208)
+      AND upp.status <> 'Deleted'
+),
+main_table AS (
+    SELECT
+        bvh.id AS id,
+        bvh.club_id,
+        bvh.club_name,
+        bvh.user_id,
+        bvh.event_date,
+        bvh.event_type
+    FROM ddxfitness_prod_v2.bi_visits_histories bvh
+    INNER JOIN required_payment_plans s ON bvh.user_id = s.user_id
+    WHERE bvh.event_type IN ('spa_out', 'spa_in')
+      {% if filter_values('club_name') %}
+        AND club_name IN ({{ "'" + "', '".join(filter_values('club_name')) + "'" }})
+      {% endif %}
+      AND (bvh.event_date BETWEEN s.signed_date AND s.end_date)
+    GROUP BY
+        bvh.id, bvh.club_id, bvh.club_name, bvh.user_id, bvh.event_date, bvh.event_type
+),
+lag_lead_event AS (
+    SELECT *,
+        leadInFrame(id) OVER (PARTITION BY user_id ORDER BY event_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS lead_id,
+        leadInFrame(event_date) OVER (PARTITION BY user_id ORDER BY event_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS lead_event,
+        leadInFrame(event_type) OVER (PARTITION BY user_id ORDER BY event_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS lead_event_type,
+        CASE WHEN event_type = 'spa_in' AND lead_event_type = 'spa_out' THEN 1 ELSE 0 END AS full_visit
+    FROM main_table
+),
+delete_visits AS (
+    SELECT *,
+        lagInFrame(full_visit) OVER (PARTITION BY user_id ORDER BY event_date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_full_visit,
+        CASE
+            WHEN full_visit = 0 AND event_type = 'spa_out' AND prev_full_visit = 1 THEN 1
+            ELSE 0
+        END AS is_delete
+    FROM lag_lead_event
+    ORDER BY id ASC
+),
+final_table AS (
+    SELECT * FROM delete_visits WHERE is_delete = 0
+)
+SELECT
+    t.club_id,
+    t.club_name,
+    t.user_id,
+    t.event_date,
+    t.lead_event,
+    t.event_type,
+    t.lead_event_type,
+    u.phone,
+    CASE WHEN event_type = 'spa_in' THEN 'spa_in' ELSE '' END AS in_event,
+    CASE WHEN event_type = 'spa_in' THEN event_date END AS in_date,
+    CASE
+        WHEN event_type = 'spa_in' AND lead_event_type = 'spa_out' THEN lead_id
+        WHEN event_type = 'spa_out' THEN t.id
+        ELSE 0
+    END AS out_id,
+    CASE
+        WHEN event_type = 'spa_out' OR (event_type = 'spa_in' AND lead_event_type = 'spa_out') THEN 'spa_out'
+        ELSE ''
+    END AS out_event,
+    CASE
+        WHEN event_type = 'spa_in' AND lead_event_type = 'spa_out' THEN lead_event
+        WHEN event_type = 'spa_out' THEN event_date
+    END AS out_date,
+    CASE WHEN event_type = 'spa_in' THEN t.id ELSE 0 END AS in_id,
+    t.id,
+    ci.name AS city_name
+FROM final_table t
+LEFT JOIN ddxfitness_prod_v2.pg_users u ON t.user_id = u.id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs c ON c.id = t.club_id
+LEFT JOIN ddxfitness_prod_v2.pg_cities ci ON c.city_id = ci.id;
