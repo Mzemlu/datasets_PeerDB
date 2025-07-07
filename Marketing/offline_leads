@@ -1,0 +1,33 @@
+SELECT 
+    u.id AS user_id, 
+    u.name AS name, 
+    u.email AS email, 
+    u.phone AS phone, 
+    u.created_at AS created_at, 
+    upp.status AS status,
+    upp.id AS user_payment_plan_id, 
+    upp.start_date,
+    bu.start_date,
+    bu.deal_id 
+FROM ddxfitness_prod_v2.pg_users u
+INNER JOIN (
+    SELECT 
+        id, 
+        start_date, 
+        status,
+        user_id 
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp 
+    WHERE status NOT IN ('Created', 'Deleted') 
+      AND coalesce(cancel_reason, '') <> 'ExcludeFromReport'
+      AND payment_plan_id IN (
+          SELECT id 
+          FROM ddxfitness_prod_v2.pg_d_inflow_payment_plans
+      )
+) upp ON u.id = upp.user_id
+LEFT JOIN ddxfitness_prod_v2.pg_bitrix_users bu 
+    ON u.id = bu.user_id 
+    OR u.phone = bu.phone 
+    OR u.email = bu.email
+WHERE bu.start_date = '1970-01-01' 
+  AND u.created_at >= today() - 7
+;
