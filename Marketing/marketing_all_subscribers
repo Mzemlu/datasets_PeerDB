@@ -1,0 +1,9 @@
+SELECT *,
+       toStartOfMonth(s.start_date) AS start_date_value,
+       toStartOfMonth(s.end_date) AS end_date_value,
+       CASE 
+           WHEN subscription_type = 'sub' THEN '-'
+           WHEN is_resubbed = 1 THEN 'Переоформление'
+           ELSE 'Новый'
+       END AS type
+FROM ddxfitness_prod_v2.bi_marketing_all_users s;
