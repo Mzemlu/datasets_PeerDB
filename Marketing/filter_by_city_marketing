@@ -1,0 +1,6 @@
+select name as city_name, 
+name as city_old,
+name as city_new,
+name as inflow_city_name,
+name as outflow_city_name
+from ddxfitness_prod_v2.pg_cities;
