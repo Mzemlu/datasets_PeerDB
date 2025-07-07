@@ -1,0 +1,3 @@
+SELECT *
+FROM ddxfitness_prod_v2.training_visits_analysis
+WHERE toDate(start_time) <= toDate(now());
