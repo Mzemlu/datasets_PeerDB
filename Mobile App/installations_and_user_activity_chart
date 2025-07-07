@@ -1,0 +1,23 @@
+SELECT
+    CASE
+        WHEN IFV IN (
+            SELECT DISTINCT IFV
+            FROM mobile_db.events_all
+            WHERE EventName = 'registration_confirm'
+            AND AppID = 4433968
+        )
+        AND IFV NOT IN (
+            SELECT DISTINCT IFV
+            FROM mobile_db.events_all
+            WHERE EventName IN ('buy_ticket_success', 'group_training_booking_success', 'subscription_pay')
+            AND AppID = 4433968
+        ) THEN 'Неактивные'
+        ELSE 'Активные'
+    END AS user_status,
+    COUNT(*) AS user_count
+FROM 
+    mobile_db.installations_all_all
+WHERE 
+    InstallDateTime IS NOT NULL
+GROUP BY 
+    user_status;
