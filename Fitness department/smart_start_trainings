@@ -1,0 +1,12 @@
+SELECT 
+    toDate(start_time) AS date, 
+    club_name, 
+    concat(name, ' ', last_name) AS trainer_name,
+    booking_status, 
+    sum(CASE WHEN user_id = 0 THEN 0 ELSE 1 END) AS qty_subs
+FROM ddxfitness_prod_v2.training_visits_analysis
+WHERE category_name IN ('Smart Start') 
+  AND booking_status <> ''
+--AND toDate(start_time) = '2025-03-31'
+--AND club_name = 'DDX Авиапарк'
+GROUP BY 1,2,3,4;
