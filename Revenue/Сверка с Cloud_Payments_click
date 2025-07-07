@@ -1,0 +1,45 @@
+SELECT 
+    tr.updated_at::date AS payment_date,
+    multiIf(tr.payment_service_id = 1,'Internal',
+            tr.payment_service_id = 2,'CloudPayments',
+            tr.payment_service_id = 3,'PayRU',
+            tr.payment_service_id = 4,'Sberbank',
+            'other') AS payment_service,
+
+    SUM(CASE WHEN tr.provider_id = 1 THEN tr.total_amount END) AS recurrent,
+    SUM(CASE WHEN tr.provider_id IN (2,28) THEN tr.total_amount END) AS manual_subscription_payment,
+    SUM(CASE WHEN tr.provider_id IN (3,24,25,34) THEN tr.total_amount END) AS deposit,
+    SUM(CASE WHEN tr.provider_id IN (6,26,27,29,37,38) THEN tr.total_amount END) AS subscription_registration,
+    SUM(CASE WHEN tr.provider_id IN (7,30,31) THEN tr.total_amount END) AS purchase_of_goods_from_the_card,
+    SUM(CASE WHEN tr.provider_id = 9 THEN tr.total_amount END) AS upgrade,
+    SUM(CASE WHEN tr.provider_id = 13 THEN tr.total_amount END) AS freezing_from_the_card,
+    SUM(CASE WHEN tr.provider_id = 16 THEN tr.total_amount END) AS payment_card_change,
+    SUM(tr.total_amount) AS total_amount
+FROM ddxfitness_prod_v2.bi_completed_transactions tr 
+JOIN ddxfitness_prod_v2.pg_transaction_providers tp ON tp.id = tr.provider_id
+LEFT JOIN ddxfitness_prod_v2.pg_user_payment_plans upp ON upp.id = tr.user_payment_plan_id
+LEFT JOIN ddxfitness_prod_v2.pg_clubs cl ON cl.id = upp.club_id
+WHERE tr.type = 'payment'
+  AND tr.provider_id IN (
+      1,   -- Рекуррентная оплата тарифного плана
+      2,   -- Ручная оплата тарифного плана
+      3,   -- Пополнение депозита
+      6,   -- Оформление тарифного плана
+      7,   -- Покупка с использованием реквизитов платежной карты
+      9,   -- Upgrade тарифного плана
+      13,  -- Покупка заморозки
+      16,  -- Оплата привязки карты
+      24,  -- Покупка подарочной карты
+      25,  -- Покупка подарочной карты с депозита
+      26,  -- Оформление подписки + ПК
+      27,  -- Оформление подписки (депозит + ПК)
+      28,  -- Ручная оплата подписки + ПК
+      29,  -- Оплата подписки (депозит + ПК)
+      30,  -- Покупка (депозит + ПК)
+      31,  -- Покупка (карта + ПК)
+      34,  -- Пополнение депозита с подарочной карты
+      37,  -- Оплата подписки (ПК)
+      38   -- Оплата подписки (депозит + ПК)
+  ) 
+GROUP BY 1, 2
+ORDER BY 1 DESC;
