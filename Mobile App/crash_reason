@@ -1,0 +1,8 @@
+SELECT
+    Crash AS crash_reason,
+    COUNT(*) AS cnt
+FROM mobile_db.crashes_all
+WHERE AppID = 4433968
+GROUP BY crash_reason
+ORDER BY cnt DESC
+--LIMIT 10
