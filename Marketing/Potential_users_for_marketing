@@ -1,0 +1,61 @@
+-- ПЧК
+
+WITH not_subcribe_users AS (
+    SELECT 
+        user_id,
+        sum(CASE WHEN status IN ['Current', 'Freezed', 'NotStarted', 'Ended', 'Refunded', 'PaymentPending'] THEN 1 END) AS flaq_client
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp
+    GROUP BY user_id
+),
+rnk_ex_client AS (
+    SELECT 
+        s.name AS club_name,
+        upp2.user_id AS user_id,
+        concat(u.name, ' ', u.last_name) AS user_name,
+        u.sex AS sex,
+        replace(extractAll(ifNull(u.phone, ''), '\\+?[0-9]+')[1], '+', '') AS phone,
+        u.email,
+        age('year', multiIf(u.birthday IS NULL, NULL, CAST(u.birthday, 'UInt16') >= 39969, CAST(CAST(u.birthday, 'UInt16') - 65536, 'date32'), u.birthday), now()) AS age,
+        upp2.status AS status,
+        CASE WHEN u.is_deleted = 1 THEN 'Да' ELSE 'Нет' END AS is_deleted,
+        toTimezone(upp2.created_at, 'Europe/Moscow') AS created_at,
+        row_number() OVER (PARTITION BY upp2.user_id ORDER BY upp2.created_at DESC) AS rnk,
+        ci.name AS city_name
+    FROM ddxfitness_prod_v2.pg_user_payment_plans upp2 
+    LEFT JOIN not_subcribe_users t ON upp2.user_id = t.user_id
+    LEFT JOIN ddxfitness_prod_v2.pg_users u ON upp2.user_id = u.id
+    LEFT JOIN ddxfitness_prod_v2.pg_clubs s ON upp2.club_id = s.id
+    INNER JOIN ddxfitness_prod_v2.pg_cities ci ON s.city_id = ci.id
+    WHERE flaq_client IS NULL 
+      AND upp2.created_at::date >= '2022-12-12' 
+      AND upp2.payment_plan_id <> 208
+),
+not_exist_users AS (
+    SELECT 
+        NULL AS club_name,
+        u.id AS user_id,
+        concat(u.name, ' ', u.last_name) AS user_name,
+        u.sex AS sex,
+        replace(extractAll(ifNull(u.phone, ''), '\\+?[0-9]+')[1], '+', '') AS phone,
+        u.email,
+        age('year', multiIf(u.birthday IS NULL, NULL, CAST(u.birthday, 'UInt16') >= 39969, CAST(CAST(u.birthday, 'UInt16') - 65536, 'date32'), u.birthday), now()) AS age,
+        NULL AS status,
+        CASE WHEN u.is_deleted = 1 THEN 'Да' ELSE 'Нет' END AS is_deleted,
+        toTimezone(u.created_at, 'Europe/Moscow') AS created_at,
+        0 AS rnk,
+        NULL AS city_name
+    FROM ddxfitness_prod_v2.pg_users u 
+    LEFT JOIN (
+        SELECT DISTINCT user_id FROM ddxfitness_prod_v2.pg_user_payment_plans upp3
+    ) q ON u.id = q.user_id
+    LEFT JOIN (
+        SELECT DISTINCT user_id AS employee FROM ddxfitness_prod_v2.pg_employees e2 WHERE is_active = 1
+    ) r ON u.id = r.employee
+    WHERE q.user_id = 0 
+      AND r.employee IS NULL 
+      AND u.created_at::date >= '2022-12-12'
+)
+SELECT * FROM rnk_ex_client
+WHERE rnk = 1
+UNION ALL
+SELECT * FROM not_exist_users;
